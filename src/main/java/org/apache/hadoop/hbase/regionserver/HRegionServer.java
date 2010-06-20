@@ -110,6 +110,7 @@ import org.apache.hadoop.hbase.zookeeper.ZooKeeperWrapper;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.net.DNS;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.WatchedEvent;
@@ -321,6 +322,10 @@ public class HRegionServer implements HRegionInterface,
       throw new NullPointerException("Server address cannot be null; " +
         "hbase-958 debugging");
     }
+
+    SecurityUtil.login(conf, "hbase.regionserver.keytab.file",
+        "hbase.regionserver.kerberos.principal", this.serverInfo.getHostname());
+    
     reinitializeThreads();
     reinitializeZooKeeper();
     int nbBlocks = conf.getInt("hbase.regionserver.nbreservationblocks", 4);

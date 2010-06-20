@@ -24,6 +24,7 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.security.KerberosInfo;
 
 import java.io.IOException;
 
@@ -36,6 +37,8 @@ import java.io.IOException;
  * number in HBaseRPCProtocolVersion
  *
  */
+@KerberosInfo(
+    serverPrincipal = "hbase.master.kerberos.principal")
 public interface HMasterInterface extends HBaseRPCProtocolVersion {
 
   /** @return true if master is available */

@@ -55,7 +55,11 @@ public class MiniHBaseCluster {
   // out why.
   private final static UserGroupInformation UGI;
   static {
-    UGI = UserGroupInformation.getCurrentUGI();
+    try {
+      UGI = UserGroupInformation.getCurrentUser();
+    } catch (IOException ioe) {
+      throw new RuntimeException("Error getting current user", ioe);
+    }
   }
 
   /**

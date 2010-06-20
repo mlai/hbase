@@ -98,6 +98,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.DNS;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -191,6 +192,10 @@ public class HMaster extends Thread implements HMasterInterface,
       false, conf);
     this.address = new HServerAddress(this.rpcServer.getListenerAddress());
 
+    // initialize server principal
+    SecurityUtil.login(conf, "hbase.master.keytab.file",
+        "hbase.master.kerberos.principal", this.address.getHostname());
+    
     this.numRetries =  conf.getInt("hbase.client.retries.number", 2);
     this.threadWakeFrequency = conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,
         10 * 1000);

@@ -875,7 +875,7 @@ public class HBaseTestingUtility {
     // Else distributed filesystem.  Make a new instance per daemon.  Below
     // code is taken from the AppendTestUtil over in hdfs.
     Configuration c2 = new Configuration(c);
-    String username = UserGroupInformation.getCurrentUGI().getUserName() +
+    String username = UserGroupInformation.getCurrentUser().getUserName() +
       differentiatingSuffix;
     UnixUserGroupInformation.saveToConf(c2,
       UnixUserGroupInformation.UGI_PROPERTY_NAME,
