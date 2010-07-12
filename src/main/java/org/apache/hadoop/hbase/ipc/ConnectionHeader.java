@@ -34,16 +34,16 @@ import org.apache.hadoop.hbase.security.HBaseSaslRpcServer.AuthMethod;
  */
 class ConnectionHeader implements Writable {
   public static final Log LOG = LogFactory.getLog(ConnectionHeader.class);
-  
+
   private String protocol;
   private UserGroupInformation ugi = null;
   private AuthMethod authMethod;
-  
+
   public ConnectionHeader() {}
-  
+
   /**
    * Create a new {@link ConnectionHeader} with the given <code>protocol</code>
-   * and {@link UserGroupInformation}. 
+   * and {@link UserGroupInformation}.
    * @param protocol protocol used for communication between the IPC client
    *                 and the server
    * @param ugi {@link UserGroupInformation} of the client communicating with
@@ -61,18 +61,18 @@ class ConnectionHeader implements Writable {
     if (protocol.isEmpty()) {
       protocol = null;
     }
-    
+
     boolean ugiUsernamePresent = in.readBoolean();
     if (ugiUsernamePresent) {
       String username = in.readUTF();
       boolean realUserNamePresent = in.readBoolean();
       if (realUserNamePresent) {
         String realUserName = in.readUTF();
-        UserGroupInformation realUserUgi = UserGroupInformation
-            .createRemoteUser(realUserName);
+        UserGroupInformation realUserUgi =
+            UserGroupInformation.createRemoteUser(realUserName);
         ugi = UserGroupInformation.createProxyUser(username, realUserUgi);
       } else {
-      	ugi = UserGroupInformation.createRemoteUser(username);
+        ugi = UserGroupInformation.createRemoteUser(username);
       }
     } else {
       ugi = null;

@@ -72,7 +72,7 @@ public class HBaseRpcMetrics implements Updater {
 
   public final MetricsTimeVaryingLong receivedBytes =
          new MetricsTimeVaryingLong("ReceivedBytes", registry);
-  public final MetricsTimeVaryingLong sentBytes = 
+  public final MetricsTimeVaryingLong sentBytes =
          new MetricsTimeVaryingLong("SentBytes", registry);
   public final MetricsTimeVaryingRate rpcQueueTime =
           new MetricsTimeVaryingRate("RpcQueueTime", registry);
@@ -80,21 +80,21 @@ public class HBaseRpcMetrics implements Updater {
           new MetricsTimeVaryingRate("RpcProcessingTime", registry);
   public final MetricsIntValue numOpenConnections =
           new MetricsIntValue("NumOpenConnections", registry);
-  public final MetricsIntValue callQueueLen = 
+  public final MetricsIntValue callQueueLen =
           new MetricsIntValue("callQueueLen", registry);
   public final MetricsTimeVaryingInt authenticationFailures = 
           new MetricsTimeVaryingInt("rpcAuthenticationFailures", registry);
-  public final MetricsTimeVaryingInt authenticationSuccesses = 
+  public final MetricsTimeVaryingInt authenticationSuccesses =
           new MetricsTimeVaryingInt("rpcAuthenticationSuccesses", registry);
-  public final MetricsTimeVaryingInt authorizationFailures = 
+  public final MetricsTimeVaryingInt authorizationFailures =
           new MetricsTimeVaryingInt("rpcAuthorizationFailures", registry);
-  public final MetricsTimeVaryingInt authorizationSuccesses = 
+  public final MetricsTimeVaryingInt authorizationSuccesses =
          new MetricsTimeVaryingInt("rpcAuthorizationSuccesses", registry);
+
   /**
    * Push the metrics to the monitoring subsystem on doUpdate() call.
    */
   public void doUpdates(final MetricsContext context) {
-    
     synchronized (this) {
       // ToFix - fix server to use the following two metrics directly so
       // the metrics do not have be copied here.

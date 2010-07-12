@@ -360,7 +360,7 @@ public class HBaseRPC {
             reconnectAttempts + " tries, giving up.");
           throw new RetriesExhaustedException("Failed setting up proxy to " +
             addr.toString() + " after attempts=" + reconnectAttempts);
-      }
+        }
       } catch(SocketTimeoutException te) {  // namenode is busy
         LOG.info("Problem connecting to server: " + addr);
         ioe = te;
@@ -470,10 +470,10 @@ public class HBaseRPC {
     throws IOException, InterruptedException {
     return call(method, params, addrs, null, conf);
   }
-  
+
   /** Expert: Make multiple, parallel calls to a set of servers. */
   public static Object[] call(Method method, Object[][] params,
-                              InetSocketAddress[] addrs, 
+                              InetSocketAddress[] addrs,
                               UserGroupInformation ticket, Configuration conf)
     throws IOException, InterruptedException {
 
@@ -482,20 +482,20 @@ public class HBaseRPC {
       invocations[i] = new Invocation(method, params[i]);
     HBaseClient client = CLIENTS.getClient(conf);
     try {
-    Writable[] wrappedValues = 
-      client.call(invocations, addrs, method.getDeclaringClass(), ticket);
-    
-    if (method.getReturnType() == Void.TYPE) {
-      return null;
-    }
+      Writable[] wrappedValues =
+          client.call(invocations, addrs, method.getDeclaringClass(), ticket);
 
-    Object[] values =
-      (Object[])Array.newInstance(method.getReturnType(), wrappedValues.length);
-    for (int i = 0; i < values.length; i++)
-      if (wrappedValues[i] != null)
-        values[i] = ((HbaseObjectWritable)wrappedValues[i]).get();
+      if (method.getReturnType() == Void.TYPE) {
+        return null;
+      }
 
-    return values;
+      Object[] values =
+          (Object[])Array.newInstance(method.getReturnType(), wrappedValues.length);
+      for (int i = 0; i < values.length; i++)
+        if (wrappedValues[i] != null)
+          values[i] = ((HbaseObjectWritable)wrappedValues[i]).get();
+
+      return values;
     } finally {
       CLIENTS.stopClient(client);
     }
@@ -512,7 +512,8 @@ public class HBaseRPC {
    * @return Server
    * @throws IOException e
    */
-  public static Server getServer(final Object instance, final String bindAddress, final int port, Configuration conf)
+  public static Server getServer(final Object instance, final String bindAddress,
+      final int port, Configuration conf)
     throws IOException {
     return getServer(instance, bindAddress, port, 1, false, conf);
   }
@@ -542,11 +543,11 @@ public class HBaseRPC {
   public static Server getServer(final Object instance, final String bindAddress, final int port,
                                  final int numHandlers,
                                  final boolean verbose, Configuration conf,
-                                 SecretManager<? extends TokenIdentifier> secretManager) 
+                                 SecretManager<? extends TokenIdentifier> secretManager)
     throws IOException {
     return new Server(instance, conf, bindAddress, port, numHandlers, verbose, secretManager);
   }
-  
+
   /** An RPC Server. */
   public static class Server extends HBaseServer {
     private Object instance;
@@ -584,8 +585,8 @@ public class HBaseRPC {
      * @throws IOException e
      */
     public Server(Object instance, Configuration conf, String bindAddress,  int port,
-                  int numHandlers, boolean verbose, 
-                  SecretManager<? extends TokenIdentifier> secretManager) 
+                  int numHandlers, boolean verbose,
+                  SecretManager<? extends TokenIdentifier> secretManager)
         throws IOException {
       super(bindAddress, port, Invocation.class, numHandlers, conf,
           classNameBase(instance.getClass().getName()), secretManager);
@@ -622,17 +623,17 @@ public class HBaseRPC {
 
         MetricsTimeVaryingRate m =
          (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(call.getMethodName());
-      	if (m == null) {
-      	  try {
-      	    m = new MetricsTimeVaryingRate(call.getMethodName(),
-      	                                        rpcDetailedMetrics.registry);
-      	  } catch (IllegalArgumentException iae) {
-      	    // the metrics has been registered; re-fetch the handle
-      	    LOG.info("Error register " + call.getMethodName(), iae);
-      	    m = (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(
-      	        call.getMethodName());
-      	  }
-      	}
+        if (m == null) {
+          try {
+            m = new MetricsTimeVaryingRate(call.getMethodName(),
+                rpcDetailedMetrics.registry);
+          } catch (IllegalArgumentException iae) {
+            // the metrics has been registered; re-fetch the handle
+            LOG.info("Error register " + call.getMethodName(), iae);
+            m = (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(
+                call.getMethodName());
+          }
+        }
         m.inc(processingTime);
 
         if (verbose) log("Return: "+value);
