@@ -21,6 +21,7 @@ package org.apache.hadoop.hbase;
 
 import java.io.IOException;
 import java.security.PrivilegedAction;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +60,7 @@ public class MiniHBaseCluster {
    * @throws IOException
    */
   public MiniHBaseCluster(Configuration conf, int numRegionServers)
-  throws IOException {
+  throws IOException, InterruptedException {
     this.conf = conf;
     conf.set(HConstants.MASTER_PORT, "0");
     init(numRegionServers);
@@ -194,6 +195,19 @@ public class MiniHBaseCluster {
     public void kill() {
       super.kill();
     }
+
+    public void abort(final String reason, final Throwable cause) {
+      this.user.doAs(new PrivilegedAction<Object>() {
+        public Object run() {
+          abortRegionServer(reason, cause);
+          return null;
+        }
+      });
+    }
+
+    private void abortRegionServer(String reason, Throwable cause) {
+      super.abort(reason, cause);
+    }
   }
 
   /**
@@ -217,12 +231,27 @@ public class MiniHBaseCluster {
     }
   }
 
-  private void init(final int nRegionNodes) throws IOException {
+  private void init(final int nRegionNodes)
+      throws IOException, InterruptedException {
     try {
       // start up a LocalHBaseCluster
-      hbaseCluster = new LocalHBaseCluster(conf, nRegionNodes,
+      hbaseCluster = new LocalHBaseCluster(conf, 0,
           MiniHBaseCluster.MiniHBaseClusterMaster.class,
           MiniHBaseCluster.MiniHBaseClusterRegionServer.class);
+
+      // manually add the regionservers as other users
+      for (int i=0; i<nRegionNodes; i++) {
+        final int index = i;
+        UserGroupInformation user = HBaseTestingUtility.getDifferentUser(conf,
+            ".hfs."+i);
+        user.doAs(new PrivilegedExceptionAction<Object>() {
+          public Object run() throws Exception {
+            hbaseCluster.addRegionServer(index);
+            return null;
+          }
+        });
+      }
+
       hbaseCluster.startup();
     } catch(IOException e) {
       shutdown();
@@ -236,10 +265,24 @@ public class MiniHBaseCluster {
    * @throws IOException
    * @return New RegionServerThread
    */
-  public JVMClusterUtil.RegionServerThread startRegionServer() throws IOException {
-    JVMClusterUtil.RegionServerThread t = this.hbaseCluster.addRegionServer();
-    t.start();
-    t.waitForServerOnline();
+  public JVMClusterUtil.RegionServerThread startRegionServer()
+      throws IOException {
+    int nextIndex = this.hbaseCluster.getRegionServers().size();
+    UserGroupInformation rsUser =
+        HBaseTestingUtility.getDifferentUser(conf, ".hfs."+nextIndex);
+    JVMClusterUtil.RegionServerThread t =  null;
+    try {
+      t = rsUser.doAs(
+          new PrivilegedExceptionAction<JVMClusterUtil.RegionServerThread>() {
+            public JVMClusterUtil.RegionServerThread run() throws Exception {
+              return hbaseCluster.addRegionServer();
+            }
+      });
+      t.start();
+      t.waitForServerOnline();
+    } catch (InterruptedException ie) {
+      throw new IOException("Interrupted executing UserGroupInformation.doAs()", ie);
+    }
     return t;
   }
 

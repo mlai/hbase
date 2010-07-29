@@ -870,7 +870,9 @@ public class HBaseTestingUtility {
     final String differentiatingSuffix)
   throws IOException {
     FileSystem currentfs = FileSystem.get(c);
-    Preconditions.checkArgument(currentfs instanceof DistributedFileSystem);
+    if (!(currentfs instanceof DistributedFileSystem)) {
+      return UserGroupInformation.getCurrentUser();
+    }
     // Else distributed filesystem.  Make a new instance per daemon.  Below
     // code is taken from the AppendTestUtil over in hdfs.
     String username = UserGroupInformation.getCurrentUser().getUserName() +
