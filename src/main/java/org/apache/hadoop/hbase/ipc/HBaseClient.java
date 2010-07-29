@@ -392,6 +392,7 @@ public class HBaseClient {
         try {
           this.socket = socketFactory.createSocket();
           this.socket.setTcpNoDelay(tcpNoDelay);
+          this.socket.setKeepAlive(tcpKeepAlive);
           // connection time out is 20s
           NetUtils.connect(this.socket, remoteId.getAddress(), 20000);
           this.socket.setSoTimeout(pingInterval);
@@ -400,7 +401,7 @@ public class HBaseClient {
           /* The max number of retries is 45,
            * which amounts to 20s*45 = 15 minutes retries.
            */
-          handleConnectionFailure(timeoutFailures++, 45, toe);
+          handleConnectionFailure(timeoutFailures++, maxRetries, toe);
         } catch (IOException ie) {
           handleConnectionFailure(ioFailures++, maxRetries, ie);
         }
@@ -748,8 +749,10 @@ public class HBaseClient {
         } else if (state == Status.ERROR.state) {
           call.setException(new RemoteException(WritableUtils.readString(in),
                                                 WritableUtils.readString(in)));
+          calls.remove(id);
         } else if (state == Status.FATAL.state) {
           // Close the connection
+          calls.remove(id);
           markClosed(new RemoteException(WritableUtils.readString(in), 
                                          WritableUtils.readString(in)));
         }

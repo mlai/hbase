@@ -326,7 +326,7 @@ public class HBaseRPC {
       return serverVersion;
     }
   }
-  
+
   /**
    * Get a proxy connection to a remote server
    * @param protocol protocol interface

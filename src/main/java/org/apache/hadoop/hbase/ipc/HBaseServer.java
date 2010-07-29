@@ -455,6 +455,7 @@ public abstract class HBaseServer {
 
         channel.configureBlocking(false);
         channel.socket().setTcpNoDelay(tcpNoDelay);
+        channel.socket().setKeepAlive(tcpKeepAlive);
         SelectionKey readKey = channel.register(selector, SelectionKey.OP_READ);
         c = new Connection(readKey, channel, System.currentTimeMillis());
         readKey.attach(c);
@@ -1027,7 +1028,7 @@ public abstract class HBaseServer {
       while (true) {
         /* Read at most one RPC. If the header is not read completely yet
          * then iterate until we read first RPC or until there is no data left.
-         */    
+         */
         int count = -1;
         if (dataLengthBuffer.remaining() > 0) {
           count = channelRead(channel, dataLengthBuffer);
@@ -1048,7 +1049,7 @@ public abstract class HBaseServer {
           byte[] method = new byte[] {rpcHeaderBuffer.get(1)};
           authMethod = AuthMethod.read(new DataInputStream(
               new ByteArrayInputStream(method)));
-          dataLengthBuffer.flip();          
+          dataLengthBuffer.flip();
           if (!HEADER.equals(dataLengthBuffer) || version != CURRENT_VERSION) {
             //Warning is ok since this is not supposed to happen.
             LOG.warn("Incorrect header or version mismatch from " +
@@ -1384,7 +1385,7 @@ public abstract class HBaseServer {
     }
 
   }
-  
+
   protected HBaseServer(String bindAddress, int port,
       Class<? extends Writable> paramClass, int handlerCount, 
       Configuration conf)
@@ -1433,7 +1434,7 @@ public abstract class HBaseServer {
 
     // Start the listener here and let it bind to the port
     listener = new Listener();
-    this.port = listener.getAddress().getPort();    
+    this.port = listener.getAddress().getPort();
     this.rpcMetrics = new HBaseRpcMetrics(serverName,
                           Integer.toString(this.port), this);
     this.rpcDetailedMetrics = new RpcDetailedMetrics(serverName,
