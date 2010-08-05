@@ -124,7 +124,7 @@ public abstract class HBaseServer {
   static int INITIAL_RESP_BUF_SIZE = 10240;
   static final String IPC_SERVER_RPC_MAX_RESPONSE_SIZE_KEY = 
                         "ipc.server.max.response.size";
-  static final int IPC_SERVER_RPC_MAX_RESPONSE_SIZE_DEFAULT = 1024*1024;
+  static final int IPC_SERVER_RPC_MAX_RESPONSE_SIZE_DEFAULT = 64*1024;
 
   public static final Log LOG = LogFactory.getLog("org.apache.hadoop.ipc.HBaseServer");
   private static final Log AUDITLOG = 
@@ -433,8 +433,10 @@ public abstract class HBaseServer {
       if (key != null) {
         Connection c = (Connection)key.attachment();
         if (c != null) {
-          if (LOG.isDebugEnabled())
-            LOG.debug(getName() + ": disconnecting client " + c.getHostAddress());
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(getName() + ": disconnecting client " + c.getHostAddress() +
+                (e != null ? " on error " + e.getMessage() : ""));
+          }
           closeConnection(c);
           c = null;
         }
@@ -802,9 +804,9 @@ public abstract class HBaseServer {
     public UserGroupInformation attemptingUser = null; // user name before auth
 
     // Fake 'call' for failed authorization response
-    private final int AUTHROIZATION_FAILED_CALLID = -1;
+    private final int AUTHORIZATION_FAILED_CALLID = -1;
     private final Call authFailedCall = 
-      new Call(AUTHROIZATION_FAILED_CALLID, null, this);
+      new Call(AUTHORIZATION_FAILED_CALLID, null, this);
     private ByteArrayOutputStream authFailedResponse = new ByteArrayOutputStream();
     // Fake 'call' for SASL context setup
     private static final int SASL_CALLID = -33;
@@ -1317,27 +1319,30 @@ public abstract class HBaseServer {
             // Make the call as the user via Subject.doAs, thus associating
             // the call with the Subject
             // TODO: For now all requests run as server principal
+            /*
             value = call(call.connection.protocol, call.param,
                          call.timestamp);
-            /* TODO: any reason to retain UGI.doAs() for authorization checking?
+                         */
+            /* TODO: need to preserve caller credentials in context for
+             * authorization checking.  We could use doAs() here with
+             * JAAS to check permissions or our own custom context and checks. */
             if (call.connection.user == null) {
-              value = call(call.connection.protocol, call.param, 
+              value = call(call.connection.protocol, call.param,
                            call.timestamp);
             } else {
-              value = 
+              value =
                 call.connection.user.doAs
                   (new PrivilegedExceptionAction<Writable>() {
                      @Override
                      public Writable run() throws Exception {
                        // make the call
-                       return call(call.connection.protocol, 
+                       return call(call.connection.protocol,
                                    call.param, call.timestamp);
 
                      }
                    }
                   );
             }
-            */
           } catch (Throwable e) {
             LOG.debug(getName()+", call "+call+": error: " + e, e);
             errorClass = e.getClass().getName();
