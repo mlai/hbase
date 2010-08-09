@@ -1316,33 +1316,14 @@ public abstract class HBaseServer {
 
           CurCall.set(call);
           try {
-            // Make the call as the user via Subject.doAs, thus associating
-            // the call with the Subject
-            // TODO: For now all requests run as server principal
-            /*
+            /* TODO: For now all requests run as the server principal for HDFS
+             * interation.  But we need to preserve caller credentials in
+             * context for authorization checking.  We could use doAs() here
+             * with JAAS to check permissions or our own custom context
+             * and checks.
+             */
             value = call(call.connection.protocol, call.param,
                          call.timestamp);
-                         */
-            /* TODO: need to preserve caller credentials in context for
-             * authorization checking.  We could use doAs() here with
-             * JAAS to check permissions or our own custom context and checks. */
-            if (call.connection.user == null) {
-              value = call(call.connection.protocol, call.param,
-                           call.timestamp);
-            } else {
-              value =
-                call.connection.user.doAs
-                  (new PrivilegedExceptionAction<Writable>() {
-                     @Override
-                     public Writable run() throws Exception {
-                       // make the call
-                       return call(call.connection.protocol,
-                                   call.param, call.timestamp);
-
-                     }
-                   }
-                  );
-            }
           } catch (Throwable e) {
             LOG.debug(getName()+", call "+call+": error: " + e, e);
             errorClass = e.getClass().getName();
