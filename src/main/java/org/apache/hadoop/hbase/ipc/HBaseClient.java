@@ -247,7 +247,7 @@ public class HBaseClient {
                 "Can't obtain server Kerberos config key from KerberosInfo");
           }
           serverPrincipal = SecurityUtil.getServerPrincipal(
-              conf.get(serverKey), server.getAddress().getCanonicalHostName());
+              conf.get(serverKey), server.getAddress().getCanonicalHostName().toLowerCase());
           if (LOG.isDebugEnabled()) {
             LOG.debug("RPC Server Kerberos principal name for protocol="
                 + protocol.getCanonicalName() + " is " + serverPrincipal);
