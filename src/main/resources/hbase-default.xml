@@ -486,6 +486,13 @@
     hbase.regionserver.keytab.file
     </description>
   </property>
+  <property>
+    <name>hadoop.policy.file</name>
+    <value>hbase-policy.xml</value>
+    <description>The policy configuration file used by RPC servers to make
+      authorization decisions on client requests.
+    </description>
+  </property>
 
   <property>
     <name>zookeeper.session.timeout</name>
