@@ -207,6 +207,18 @@
         <enabled>true</enabled>
       </releases>
     </repository>
+    <!-- snapshot builds of Hadoop 0.20.104-append branch for testing -->
+    <repository>
+      <id>ghelmling.testing</id>
+      <name>Gary Helmling test repo</name>
+      <url>http://boa04.iridiant.net:8000/~ghelmling/mvn/</url>
+      <snapshots>
+        <enabled>true</enabled>
+      </snapshots>
+      <releases>
+        <enabled>true</enabled>
+      </releases>
+    </repository>
   </repositories>
 
 
