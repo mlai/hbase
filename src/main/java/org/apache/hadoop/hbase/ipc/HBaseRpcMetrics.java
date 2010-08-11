@@ -28,6 +28,8 @@ import org.apache.hadoop.metrics.MetricsUtil;
 import org.apache.hadoop.metrics.Updater;
 import org.apache.hadoop.metrics.util.*;
 
+import java.lang.reflect.Method;
+
 /**
  *
  * This class is for maintaining  the various RPC statistics
@@ -60,6 +62,9 @@ public class HBaseRpcMetrics implements Updater {
 
     context.registerUpdater(this);
 
+    initMethods(HMasterInterface.class);
+    initMethods(HMasterRegionInterface.class);
+    initMethods(HRegionInterface.class);
     rpcStatistics = new HBaseRPCStatistics(this.registry, hostName, port);
   }
 
@@ -90,6 +95,28 @@ public class HBaseRpcMetrics implements Updater {
           new MetricsTimeVaryingInt("rpcAuthorizationFailures", registry);
   public final MetricsTimeVaryingInt authorizationSuccesses =
          new MetricsTimeVaryingInt("rpcAuthorizationSuccesses", registry);
+
+  private void initMethods(Class<? extends HBaseRPCProtocolVersion> protocol) {
+    for (Method m : protocol.getDeclaredMethods()) {
+      if (get(m.getName()) == null)
+        create(m.getName());
+    }
+  }
+
+  private MetricsTimeVaryingRate get(String key) {
+    return (MetricsTimeVaryingRate) registry.get(key);
+  }
+  private MetricsTimeVaryingRate create(String key) {
+    return new MetricsTimeVaryingRate(key, this.registry);
+  }
+
+  public synchronized void inc(String name, int amt) {
+    MetricsTimeVaryingRate m = get(name);
+    if (m == null) {
+      m = create(name);
+    }
+    m.inc(amt);
+  }
 
   /**
    * Push the metrics to the monitoring subsystem on doUpdate() call.
