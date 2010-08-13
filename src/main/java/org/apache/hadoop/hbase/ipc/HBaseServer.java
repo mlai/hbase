@@ -26,6 +26,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.ObjectWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
+import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
@@ -51,13 +52,9 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.channels.WritableByteChannel;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /** An abstract IPC service.  IPC calls take a single {@link Writable} as a
@@ -91,8 +88,26 @@ public abstract class HBaseServer {
   protected static final ThreadLocal<HBaseServer> SERVER =
     new ThreadLocal<HBaseServer>();
 
+  private static final Map<String, Class<? extends VersionedProtocol>>
+      PROTOCOL_CACHE =
+      new ConcurrentHashMap<String, Class<? extends VersionedProtocol>>();
+
+  static Class<? extends VersionedProtocol> getProtocolClass(
+      String protocolName, Configuration conf)
+  throws ClassNotFoundException {
+    Class<? extends VersionedProtocol> protocol =
+        PROTOCOL_CACHE.get(protocolName);
+
+    if (protocol == null) {
+      protocol = (Class<? extends VersionedProtocol>)
+          conf.getClassByName(protocolName);
+      PROTOCOL_CACHE.put(protocolName, protocol);
+    }
+    return protocol;
+  }
+  
   /** Returns the server instance called under or null.  May be called under
-   * {@link #call(Writable, long)} implementations, and under {@link Writable}
+   * {@link #call(Class, Writable, long)} implementations, and under {@link Writable}
    * methods of paramters and return values.  Permits applications to access
    * the server context.
    * @return HBaseServer
@@ -721,6 +736,8 @@ public abstract class HBaseServer {
     // disconnected, we can say where it used to connect to.
     private String hostAddress;
     private int remotePort;
+    ConnectionHeader header = new ConnectionHeader();
+    Class<? extends VersionedProtocol> protocol;
     protected UserGroupInformation ticket = null;
 
     public Connection(SocketChannel channel, long lastContact) {
@@ -849,14 +866,21 @@ public abstract class HBaseServer {
       }
     }
 
-    /// Reads the header following version
+    /// Reads the connection header following version
     private void processHeader() throws IOException {
-      /* In the current version, it is just a ticket.
-       * Later we could introduce a "ConnectionHeader" class.
-       */
       DataInputStream in =
         new DataInputStream(new ByteArrayInputStream(data.array()));
-      ticket = (UserGroupInformation) ObjectWritable.readObject(in, conf);
+      header.readFields(in);
+      try {
+        String protocolClassName = header.getProtocol();
+        if (protocolClassName != null) {
+          protocol = getProtocolClass(header.getProtocol(), conf);
+        }
+      } catch (ClassNotFoundException cnfe) {
+        throw new IOException("Unknown protocol: " + header.getProtocol());
+      }
+
+      ticket = header.getUgi();
     }
 
     private void processData() throws  IOException, InterruptedException {
@@ -916,7 +940,7 @@ public abstract class HBaseServer {
           UserGroupInformation previous = UserGroupInformation.getCurrentUGI();
           UserGroupInformation.setCurrentUser(call.connection.ticket);
           try {
-            value = call(call.param, call.timestamp);             // make the call
+            value = call(call.connection.protocol, call.param, call.timestamp);             // make the call
           } catch (Throwable e) {
             LOG.debug(getName()+", call "+call+": error: " + e, e);
             errorClass = e.getClass().getName();
@@ -1080,8 +1104,9 @@ public abstract class HBaseServer {
    * @return Writable
    * @throws IOException e
    */
-  public abstract Writable call(Writable param, long receiveTime)
-                                                throws IOException;
+  public abstract Writable call(Class<? extends VersionedProtocol> protocol, 
+      Writable param, long receiveTime)
+      throws IOException;
 
   /**
    * The number of open RPC conections
