@@ -329,7 +329,7 @@ public class HBaseRPC {
    * @return Server
    * @throws IOException e
    */
-  public static Server getServer(final Object instance, final String bindAddress, final int port, Configuration conf)
+  public static RpcServer getServer(final Object instance, final String bindAddress, final int port, Configuration conf)
     throws IOException {
     return getServer(instance, bindAddress, port, 1, false, conf);
   }
@@ -347,7 +347,7 @@ public class HBaseRPC {
    * @return Server
    * @throws IOException e
    */
-  public static Server getServer(final Object instance, final String bindAddress, final int port,
+  public static RpcServer getServer(final Object instance, final String bindAddress, final int port,
                                  final int numHandlers,
                                  final boolean verbose, Configuration conf)
     throws IOException {
@@ -355,7 +355,7 @@ public class HBaseRPC {
   }
 
   /** Construct a server for a protocol implementation instance. */
-  public static Server getServer(Class<? extends VersionedProtocol> protocol,
+  public static RpcServer getServer(Class<? extends VersionedProtocol> protocol,
                                  Object instance, String bindAddress,
                                  int port, Configuration conf)
     throws IOException {
@@ -363,7 +363,7 @@ public class HBaseRPC {
   }
 
   /** Construct a server for a protocol implementation instance. */
-  public static Server getServer(Class protocol,
+  public static RpcServer getServer(Class protocol,
                                  Object instance, String bindAddress, int port,
                                  int numHandlers,
                                  boolean verbose, Configuration conf)
@@ -371,15 +371,5 @@ public class HBaseRPC {
     return getProtocolEngine(protocol, conf)
       .getServer(protocol, instance, bindAddress, port, numHandlers, verbose,
                  conf);
-  }
-
-  /** An RPC Server. */
-  public abstract static class Server extends HBaseServer {
-
-    protected Server(String bindAddress, int port,
-                     Class<? extends Writable> paramClass, int handlerCount,
-                     Configuration conf, String serverName) throws IOException {
-      super(bindAddress, port, paramClass, handlerCount, conf, serverName);
-    }
   }
 }
