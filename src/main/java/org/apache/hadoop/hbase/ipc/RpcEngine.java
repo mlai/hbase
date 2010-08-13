@@ -44,7 +44,7 @@ interface RpcEngine {
     throws IOException, InterruptedException;
 
   /** Construct a server for a protocol implementation instance. */
-  HBaseRPC.Server getServer(Class<? extends VersionedProtocol> protocol, Object instance, String bindAddress,
+  RpcServer getServer(Class<? extends VersionedProtocol> protocol, Object instance, String bindAddress,
                        int port, int numHandlers, boolean verbose,
                        Configuration conf) throws IOException;
 
