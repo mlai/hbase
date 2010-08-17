@@ -45,12 +45,12 @@ import java.lang.reflect.Method;
 public class HBaseRpcMetrics implements Updater {
   private final MetricsRegistry registry = new MetricsRegistry();
   private final MetricsRecord metricsRecord;
-  private final HBaseServer myServer;
+  private final RpcServer myServer;
   private static Log LOG = LogFactory.getLog(HBaseRpcMetrics.class);
   private final HBaseRPCStatistics rpcStatistics;
 
   public HBaseRpcMetrics(String hostName, String port,
-      final HBaseServer server) {
+      final RpcServer server) {
     myServer = server;
     MetricsContext context = MetricsUtil.getContext("rpc");
     metricsRecord = MetricsUtil.createRecord(context, "metrics");

@@ -474,6 +474,7 @@ Release 0.21.0 - Unreleased
    HBASE-2897  RowResultGenerator should handle NoSuchColumnFamilyException
    HBASE-2905  NPE when inserting mass data via REST interface (Sandy Yin via
                Andrew Purtell)
+   HBASE-2908  Wrong order of null-check [in TIF] (Libor Dener via Stack)
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -832,6 +833,8 @@ Release 0.21.0 - Unreleased
                (Chongxin Li via Stack)
    HBASE-2844  Capping the number of regions (Pranav Khaitan via Stack)
    HBASE-2870  Add Backup CLI Option to HMaster (Nicolas Spiegelberg via Stack)
+   HBASE-2868  Do some small cleanups in org.apache.hadoop.hbase.regionserver.wal
+               (Alex Newman via Stack)
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts

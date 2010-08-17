@@ -40,6 +40,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ipc.HBaseServer;
+import org.apache.hadoop.hbase.ipc.SecureServer;
 import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.SecretManager;
@@ -176,11 +177,11 @@ public class HBaseSaslRpcServer {
   /** CallbackHandler for SASL DIGEST-MD5 mechanism */
   public static class SaslDigestCallbackHandler implements CallbackHandler {
     private SecretManager<TokenIdentifier> secretManager;
-    private HBaseServer.Connection connection;
+    private SecureServer.SecureConnection connection;
 
     public SaslDigestCallbackHandler(
         SecretManager<TokenIdentifier> secretManager,
-        HBaseServer.Connection connection) {
+        SecureServer.SecureConnection connection) {
       this.secretManager = secretManager;
       this.connection = connection;
     }
