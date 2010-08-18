@@ -303,7 +303,7 @@ class WritableRpcEngine implements RpcEngine {
   }
 
   /** An RPC Server. */
-  public static class Server extends HBaseRPC.Server {
+  public static class Server extends HBaseServer {
     private Object instance;
     private Class<?> implementation;
     private boolean verbose;
