@@ -63,7 +63,7 @@ import org.apache.hadoop.hbase.util.Writables;
  *  }
  * </Pre>
  */
-class SplitTransaction {
+public class SplitTransaction {
   private static final Log LOG = LogFactory.getLog(SplitTransaction.class);
   private static final String SPLITDIR = "splits";
 
@@ -117,7 +117,7 @@ class SplitTransaction {
    * @param r Region to split
    * @param splitrow Row to split around
    */
-  SplitTransaction(final HRegion r, final byte [] splitrow) {
+  public SplitTransaction(final HRegion r, final byte [] splitrow) {
     this.parent = r;
     this.splitrow = splitrow;
     this.splitdir = getSplitDir(this.parent);
@@ -275,6 +275,12 @@ class SplitTransaction {
 
     // Unlock if successful split.
     this.parent.splitsAndClosesLock.writeLock().unlock();
+
+    // Coprocessor callback
+    if (this.parent.getCoprocessorHost() != null) {
+      this.parent.getCoprocessorHost().onSplit(a,b);
+    }
+
 
     // Leaving here, the splitdir with its dross will be in place but since the
     // split was successful, just leave it; it'll be cleaned when parent is
