@@ -20,6 +20,8 @@
 
 package org.apache.hadoop.hbase.coprocessor;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -28,11 +30,14 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.coprocessor.Coprocessor.Priority;
+import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.util.Base64;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 
 public class TestClassloading extends HBaseClusterTestCase {
+  static final Log LOG = LogFactory.getLog(TestClassloading.class);
 
   // This is a jar that contains a basic manifest and a single class
   // org/apache/hadoop/hbase/coprocessor/TestClassloading_Main which
@@ -93,6 +98,7 @@ public class TestClassloading extends HBaseClusterTestCase {
 
     // create a table that references the jar
     HTableDescriptor htd = new HTableDescriptor(getClass().getName());
+    LOG.debug("+++ getname: " + getClass().getName());
     htd.addFamily(new HColumnDescriptor("test"));
     htd.setValue("Coprocessor$1",
       path.toString() +
@@ -105,7 +111,12 @@ public class TestClassloading extends HBaseClusterTestCase {
     boolean found = false;
     MiniHBaseCluster hbase = this.cluster;
     for (HRegion region: hbase.getRegionServer(0).getOnlineRegions()) {
+      LOG.debug("+++2: " + region.getRegionNameAsString());
+      LOG.debug("+++21: region.isClosed() " + region.isClosed());
       if (region.getRegionNameAsString().startsWith(getClass().getName())) {
+        CoprocessorHost host = region.getCoprocessorHost();
+        host.load(path, className, Priority.USER);
+        
         Coprocessor c = region.getCoprocessorHost().findCoprocessor(className);
         found = (c != null);
       }

@@ -196,8 +196,8 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     try {
       PairOfSameType<HRegion> daughters = st.execute(null);
       for (HRegion each_daughter: daughters) {
-	regions[i] = each_daughter;
-	i++;
+        regions[i] = each_daughter;
+        i++;
       }
     }
     catch (IOException ioe) {
