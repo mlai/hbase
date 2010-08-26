@@ -98,7 +98,6 @@ public class TestClassloading extends HBaseClusterTestCase {
 
     // create a table that references the jar
     HTableDescriptor htd = new HTableDescriptor(getClass().getName());
-    LOG.debug("+++ getname: " + getClass().getName());
     htd.addFamily(new HColumnDescriptor("test"));
     htd.setValue("Coprocessor$1",
       path.toString() +
@@ -111,12 +110,7 @@ public class TestClassloading extends HBaseClusterTestCase {
     boolean found = false;
     MiniHBaseCluster hbase = this.cluster;
     for (HRegion region: hbase.getRegionServer(0).getOnlineRegions()) {
-      LOG.debug("+++2: " + region.getRegionNameAsString());
-      LOG.debug("+++21: region.isClosed() " + region.isClosed());
       if (region.getRegionNameAsString().startsWith(getClass().getName())) {
-        CoprocessorHost host = region.getCoprocessorHost();
-        host.load(path, className, Priority.USER);
-        
         Coprocessor c = region.getCoprocessorHost().findCoprocessor(className);
         found = (c != null);
       }

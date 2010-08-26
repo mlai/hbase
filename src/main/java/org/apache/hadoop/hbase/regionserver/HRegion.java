@@ -368,6 +368,10 @@ public class HRegion implements HeapSize { // , Writable{
     // (particularly if no recovered edits, seqid will be -1).
     long nextSeqid = maxSeqId + 1;
     LOG.info("Onlined " + this.toString() + "; next sequenceid=" + nextSeqid);
+
+    if (coprocessorHost != null) {
+      coprocessorHost.onOpen();
+    }
     return nextSeqid;
   }
 
@@ -484,7 +488,6 @@ public class HRegion implements HeapSize { // , Writable{
     }
 
     if (coprocessorHost != null) {
-      LOG.debug("+++ co onClose()");
       this.coprocessorHost.onClose(abort);
     }
 
@@ -726,7 +729,6 @@ public class HRegion implements HeapSize { // , Writable{
         return splitRow;
       }
       if (coprocessorHost != null) {
-        LOG.debug("+++ co: concompact");
         coprocessorHost.onCompact(false, false);
       }
       try {
@@ -763,7 +765,6 @@ public class HRegion implements HeapSize { // , Writable{
       }
     } finally {
       if (coprocessorHost != null) {
-        LOG.debug("+++ co: concompact 2");
         coprocessorHost.onCompact(true, splitRow != null);
       }
       splitsAndClosesLock.readLock().unlock();
@@ -814,7 +815,6 @@ public class HRegion implements HeapSize { // , Writable{
       try {
         boolean shouldCompact = internalFlushcache();
         if (coprocessorHost != null) {
-          LOG.debug("+++ co: onflsuh");
           coprocessorHost.onFlush();
         }
         return shouldCompact;
@@ -1093,7 +1093,6 @@ public class HRegion implements HeapSize { // , Writable{
         result = get(get, null);
       }
       if (coprocessorHost != null) {
-        LOG.debug("+++ co: ongetclose");
         result = coprocessorHost.onGetClosestRowBefore(row, family, result);
       }
       return result;
@@ -1143,7 +1142,6 @@ public class HRegion implements HeapSize { // , Writable{
   protected InternalScanner instantiateInternalScanner(Scan scan, List<KeyValueScanner> additionalScanners) throws IOException {
     InternalScanner s = new RegionScanner(scan, additionalScanners);
     if (coprocessorHost != null) {
-      LOG.debug("+++ co: onscanopen");
       coprocessorHost.onScannerOpen(scan, s.hashCode());
     }
     return s;
@@ -1218,7 +1216,6 @@ public class HRegion implements HeapSize { // , Writable{
     boolean flush = false;
 
     if (coprocessorHost != null) {
-      LOG.debug("+++ co: ondelete");
       familyMap = coprocessorHost.onDelete(familyMap);
       if (familyMap.isEmpty()) {
         return;
@@ -1571,7 +1568,6 @@ public class HRegion implements HeapSize { // , Writable{
       try {
         result = get(get);
         if (coprocessorHost != null) {
-          LOG.debug("+++ co: onget");
           result = coprocessorHost.onGet(get, result);
           if (result.isEmpty()) {
             return false;
@@ -1706,7 +1702,6 @@ public class HRegion implements HeapSize { // , Writable{
     familyMap = new HashMap<byte[], List<KeyValue>>();
 
     if (coprocessorHost != null) {
-      LOG.debug("+++ co.put()");
       familyMap = coprocessorHost.onPut(familyMap);
 //      if (familyMap.isEmpty()) {
 //        return;
@@ -2351,7 +2346,6 @@ public class HRegion implements HeapSize { // , Writable{
       boolean returnResult = nextInternal(limit);
 
       if (coprocessorHost != null) {
-        LOG.debug("+++ co: onscannext");
         results = coprocessorHost.onScannerNext(hashCode(), results);
       }
 
@@ -2459,7 +2453,6 @@ public class HRegion implements HeapSize { // , Writable{
 
     public synchronized void close() {
       if (coprocessorHost != null) {
-        LOG.debug("+++ co: onscanclose2");
         coprocessorHost.onScannerClose(hashCode());
       }
       if (storeHeap != null) {
@@ -2526,7 +2519,6 @@ public class HRegion implements HeapSize { // , Writable{
   public static HRegion createHRegion(final HRegionInfo info, final Path rootDir,
     final Configuration conf)
   throws IOException {
-    LOG.debug("+++4: HRegion createHRegion");
     Path tableDir =
       HTableDescriptor.getTableDir(rootDir, info.getTableDesc().getName());
     Path regionDir = HRegion.getRegionDir(tableDir, info.getEncodedName());
@@ -2963,7 +2955,6 @@ public class HRegion implements HeapSize { // , Writable{
     }
     List<KeyValue> results = get(get);
     if (coprocessorHost != null) {
-      LOG.debug("+++ co: onget2");
       coprocessorHost.onGet(get, results);
     }
     return new Result(results);
@@ -3013,14 +3004,10 @@ public class HRegion implements HeapSize { // , Writable{
       Get get = new Get(row);
       get.addColumn(family, qualifier);
 
-      List<KeyValue> results = new ArrayList<KeyValue>();
+      List<KeyValue> results = get(get);
 
       if (coprocessorHost != null) {
-        LOG.debug("+++ co: onget23");
-        results = coprocessorHost.onGet(get,results);
-      }
-      else {
-        results = get(get);
+        results = coprocessorHost.onGet(get, results);
       }
 
       if (!results.isEmpty()) {
@@ -3028,16 +3015,16 @@ public class HRegion implements HeapSize { // , Writable{
         byte [] buffer = kv.getBuffer();
         int valueOffset = kv.getValueOffset();
         result += Bytes.toLong(buffer, valueOffset, Bytes.SIZEOF_LONG);
-        if (coprocessorHost != null) {
-          LOG.debug("+++ co: o put");
-          kv = coprocessorHost.onPut(kv);
-        }
       }
 
       // bulid the KeyValue now:
       KeyValue newKv = new KeyValue(row, family,
           qualifier, EnvironmentEdgeManager.currentTimeMillis(),
           Bytes.toBytes(result));
+
+      if (coprocessorHost != null) {
+        newKv = coprocessorHost.onPut(newKv);
+      }
 
       // now log it:
       if (writeToWAL) {
@@ -3083,7 +3070,7 @@ public class HRegion implements HeapSize { // , Writable{
 
   public static final long FIXED_OVERHEAD = ClassSize.align(
       (4 * Bytes.SIZEOF_LONG) + Bytes.SIZEOF_BOOLEAN +
-      (21 * ClassSize.REFERENCE) + ClassSize.OBJECT + Bytes.SIZEOF_INT);
+      (22 * ClassSize.REFERENCE) + ClassSize.OBJECT + Bytes.SIZEOF_INT);
 
   public static final long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +
       ClassSize.OBJECT + (2 * ClassSize.ATOMIC_BOOLEAN) +

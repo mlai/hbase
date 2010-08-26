@@ -397,7 +397,6 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        LOG.debug("+++ env.impl.getClass().getName() = " + env.impl.getClass().getName());
         if (env.impl.getClass().getName().equals(className)) {
           return env.impl;
         }
@@ -417,7 +416,6 @@ public class CoprocessorHost {
    * Invoked to handle a region open
    */
   public void onOpen() {
-    LOG.debug("+++3: ch onOpen is called");
     // scan the table attributes for coprocessor load specifications
     for (Map.Entry<ImmutableBytesWritable,ImmutableBytesWritable> e:
         region.getTableDesc().getValues().entrySet()) {
