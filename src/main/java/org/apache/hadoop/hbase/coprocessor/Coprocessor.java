@@ -129,9 +129,6 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 public interface Coprocessor {
   public static final int VERSION = 1;
 
-  ///////////////////////////////////////////////////////////////////////////
-  // Environment
-
   // Operational state
 
   public enum State {
@@ -158,66 +155,20 @@ public interface Coprocessor {
       return prio;
     }
 
-  }
-
-  /**
-   * Coprocessor environment state.
-   */
-  public interface Environment {
-
-    /** @return the Coprocessor interface version */
-    public int getVersion();
-
-    /** @return the HBase version as a string (e.g. "0.21.0") */
-    public String getHBaseVersion();
-
-    /** @return the region associated with this coprocessor */
-    public HRegion getRegion();
-
-    /**
-     * @return an interface for accessing the given table
-     * @throws IOException
-     */
-    public HTableInterface getTable(byte[] tableName) throws IOException;
-
-    // environment variables
-
-    /**
-     * Get an environment variable
-     * @param key the key
-     * @return the object corresponding to the environment variable, if set
-     */
-    public Object get(Object key);
-
-    /**
-     * Set an environment variable
-     * @param key the key
-     * @param value the value
-     */
-    public void put(Object key, Object value);
-
-    /**
-     * Remove an environment variable
-     * @param key the key
-     * @return the object corresponding to the environment variable, if set
-     */
-    public Object remove(Object key);
-
-  }
+  }  
 
   // Interface
-
   /**
    * Called when the region is reported as open to the master.
    * @param e the environment provided by the region server
    */
-  public void onOpen(final Environment e);
+  public void onOpen(final CoprocessorEnvironment e);
 
   /**
    * Called after the memstore is flushed to disk.
    * @param e the environment provided by the region server
    */
-  public void onFlush(final Environment e);
+  public void onFlush(final CoprocessorEnvironment e);
 
   /**
    * Called before and after compaction.
@@ -226,7 +177,7 @@ public interface Coprocessor {
    * @param willSplit true if compaction will result in a split, false
    * otherwise
    */
-  public void onCompact(final Environment e, final boolean complete,
+  public void onCompact(final CoprocessorEnvironment e, final boolean complete,
     final boolean willSplit);
 
   /**
@@ -237,13 +188,13 @@ public interface Coprocessor {
    * @param l the left daughter region
    * @param r the right daughter region
    */
-  public void onSplit(final Environment e, final HRegion l, final HRegion r);
+  public void onSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r);
 
   /**
    * Called when the region is reported as closed to the master.
    * @param e the environment provided by the region server
    * @param abortRequested true if the region server is aborting
    */
-  public void onClose(final Environment e, boolean abortRequested);
+  public void onClose(final CoprocessorEnvironment e, boolean abortRequested);
 
 }

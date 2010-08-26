@@ -23,7 +23,7 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.coprocessor.Coprocessor.Environment;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 
 /**
  * Coprocessors implement this interface to observe and mediate client actions
@@ -39,8 +39,9 @@ public interface RegionObserver {
    * @param result the result set
    * @return the result set to return to the client
    */
-  public Result onGetClosestRowBefore(final Environment e, final byte [] row,
-    final byte [] family, final Result result);
+  public Result onGetClosestRowBefore(final CoprocessorEnvironment e, 
+      final byte [] row,
+      final byte [] family, final Result result);
 
   /**
    * Called as part of processing checkAndPut
@@ -49,7 +50,7 @@ public interface RegionObserver {
    * @param results the result list
    * @return the possibly transformed result list to use
    */
-  public List<KeyValue> onGet(final Environment e, final Get get,
+  public List<KeyValue> onGet(final CoprocessorEnvironment e, final Get get,
       final List<KeyValue> results);
 
   /**
@@ -59,7 +60,7 @@ public interface RegionObserver {
    * @param exists the result returned by the region server
    * @return the result to return to the client
    */
-  public boolean onExists(final Environment e, final Get get,
+  public boolean onExists(final CoprocessorEnvironment e, final Get get,
     final boolean exists);
 
   /**
@@ -68,7 +69,7 @@ public interface RegionObserver {
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
    */
-  public Map<byte[], List<KeyValue>> onPut(final Environment e,
+  public Map<byte[], List<KeyValue>> onPut(final CoprocessorEnvironment e,
     final Map<byte[], List<KeyValue>> familyMap);
 
   /**
@@ -77,7 +78,7 @@ public interface RegionObserver {
    * @param kv a KeyValue to store
    * @return the possibly transformed KeyValue to actually use
    */
-  public KeyValue onPut(final Environment e, final KeyValue kv);
+  public KeyValue onPut(final CoprocessorEnvironment e, final KeyValue kv);
 
   /**
    * Called when the client deletes a value.
@@ -85,7 +86,7 @@ public interface RegionObserver {
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
    */
-  public Map<byte[], List<KeyValue>> onDelete(final Environment e,
+  public Map<byte[], List<KeyValue>> onDelete(final CoprocessorEnvironment e,
     final Map<byte[], List<KeyValue>> familyMap);
 
   /**
@@ -94,7 +95,7 @@ public interface RegionObserver {
    * @param scan the Scan specification
    * @param scannerId the scanner id allocated by the region server
    */
-  public void onScannerOpen(final Environment e, final Scan scan,
+  public void onScannerOpen(final CoprocessorEnvironment e, final Scan scan,
     final long scannerId);
 
   /**
@@ -104,7 +105,7 @@ public interface RegionObserver {
    * @param results the result set returned by the region server
    * @return the possibly transformed result set to actually return
    */
-  public List<KeyValue> onScannerNext(final Environment e,
+  public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
     final long scannerId, final List<KeyValue> results);
 
   /**
@@ -112,5 +113,6 @@ public interface RegionObserver {
    * @param e the environment provided by the region server
    * @param scannerId the scanner id
    */
-  public void onScannerClose(final Environment e, final long scannerId);
+  public void onScannerClose(final CoprocessorEnvironment e, 
+      final long scannerId);
 }

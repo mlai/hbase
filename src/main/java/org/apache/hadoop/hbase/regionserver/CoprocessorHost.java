@@ -28,6 +28,7 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
@@ -66,7 +67,7 @@ public class CoprocessorHost {
   /**
    * Encapsulation of the environment of each coprocessor
    */
-  class Environment implements Coprocessor.Environment {
+  class Environment implements CoprocessorEnvironment {
 
     /**
      * A wrapper for HTable. Can be used to restrict privilege.
