@@ -33,6 +33,7 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor.Priority;
 import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
@@ -52,27 +53,27 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     private boolean flushed;
     private boolean split;
 
-    public void onOpen(Environment e) {
+    public void onOpen(CoprocessorEnvironment e) {
       LOG.info("onOpen");
       opened = true;
     }
 
-    public void onClose(Environment e, boolean abortRequested) {
+    public void onClose(CoprocessorEnvironment e, boolean abortRequested) {
       LOG.info("onClose abortRequested=" + abortRequested);
       closed = true;
     }
 
-    public void onCompact(Environment e, boolean complete, boolean willSplit) {
+    public void onCompact(CoprocessorEnvironment e, boolean complete, boolean willSplit) {
       LOG.info("onCompact: complete=" + complete + " willSplit=" + willSplit);
       compacted = true;
     }
 
-    public void onFlush(Environment e) {
+    public void onFlush(CoprocessorEnvironment e) {
       LOG.info("onFlush");
       flushed = true;
     }
 
-    public void onSplit(Environment e, HRegion l, HRegion r) {
+    public void onSplit(CoprocessorEnvironment e, HRegion l, HRegion r) {
       LOG.info("onSplit: this=" + e.getRegion().getRegionNameAsString() +
         " l=" + l.getRegionNameAsString() +
         " r=" + r.getRegionNameAsString());

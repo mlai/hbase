@@ -40,6 +40,7 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor.Priority;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -61,27 +62,27 @@ public class TestRegionObserverInterface extends HBaseTestCase {
     boolean hadGet = false;
     boolean hadPut = false;
 
-    public void onOpen(final Environment e) { }
+    public void onOpen(final CoprocessorEnvironment e) { }
 
-    public void onClose(final Environment e, final boolean abortRequested) { }
+    public void onClose(final CoprocessorEnvironment e, final boolean abortRequested) { }
 
-    public void onCompact(final Environment e, final boolean complete,
+    public void onCompact(final CoprocessorEnvironment e, final boolean complete,
         final boolean willSplit) { }
 
-    public void onFlush(final Environment e) { }
+    public void onFlush(final CoprocessorEnvironment e) { }
 
-    public void onSplit(final Environment e, final HRegion l,
+    public void onSplit(final CoprocessorEnvironment e, final HRegion l,
         final HRegion r) { }
 
     // RegionObserver
 
-    public boolean onExists(final Environment e, final Get get,
+    public boolean onExists(final CoprocessorEnvironment e, final Get get,
         boolean exists) {
       // not tested -- need to go through the RS to get here
       return exists;
     }
 
-    public List<KeyValue> onGet(Environment e, Get get, List<KeyValue> results) {
+    public List<KeyValue> onGet(CoprocessorEnvironment e, Get get, List<KeyValue> results) {
       LOG.info("onGet: get=" + get);
       assertTrue(Bytes.equals(get.getRow(), ROW));
       if (beforeDelete) {
@@ -111,7 +112,7 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return results;
     }
 
-    public Map<byte[], List<KeyValue>> onPut(Environment e,
+    public Map<byte[], List<KeyValue>> onPut(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("onPut put=" + familyMap);
       List<KeyValue> kvs = familyMap.get(A);
@@ -130,18 +131,18 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return familyMap;
     }
 
-    public KeyValue onPut(Environment e, KeyValue kv) {
+    public KeyValue onPut(CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
 
-    public Map<byte[], List<KeyValue>> onDelete(Environment e,
+    public Map<byte[], List<KeyValue>> onDelete(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("onDelete: delete=" + familyMap);
       beforeDelete = false;
       return familyMap;
     }
 
-    public Result onGetClosestRowBefore(final Environment e, final byte[] row,
+    public Result onGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
         final byte[] family, Result result) {
       LOG.info("onGetClosestRowBefore: row=" + Bytes.toStringBinary(row) +
         " family=" + Bytes.toStringBinary(family) +
@@ -149,17 +150,17 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return result;
     }
 
-    public void onScannerOpen(Environment e, Scan scan, long scannerId) {
+    public void onScannerOpen(CoprocessorEnvironment e, Scan scan, long scannerId) {
       // not tested -- need to go through the RS to get here
     }
 
-    public List<KeyValue> onScannerNext(final Environment e,
+    public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
         final long scannerId, List<KeyValue> results) {
       // not tested -- need to go through the RS to get here
       return results;
     }
 
-    public void onScannerClose(final Environment e, final long scannerId) {
+    public void onScannerClose(final CoprocessorEnvironment e, final long scannerId) {
       // not tested -- need to go through the RS to get here
     }
 
