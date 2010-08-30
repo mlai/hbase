@@ -1643,15 +1643,12 @@ public class HRegion implements HeapSize { // , Writable{
   throws IOException {
     Map<byte[], List<KeyValue>> familyMap;
     familyMap = new HashMap<byte[], List<KeyValue>>();
-
+    
+    familyMap.put(family, edits);
+    
     if (coprocessorHost != null) {
       familyMap = coprocessorHost.onPut(familyMap);
-//      if (familyMap.isEmpty()) {
-//        return;
-//      }
     }
-
-    familyMap.put(family, edits);
     this.put(familyMap, true);
   }
 
@@ -1670,9 +1667,6 @@ public class HRegion implements HeapSize { // , Writable{
 
     if (coprocessorHost != null) {
       familyMap = coprocessorHost.onPut(familyMap);
-      if (familyMap.isEmpty()) {
-        return;
-      }
     }
 
     this.updatesLock.readLock().lock();
@@ -2943,13 +2937,6 @@ public class HRegion implements HeapSize { // , Writable{
         List<KeyValue> results = get(get);
         if (coprocessorHost != null) {
           results = coprocessorHost.onGet(get, results);
-        }
-
-        if (!results.isEmpty()) {
-          KeyValue kv = results.get(0);
-          byte [] buffer = kv.getBuffer();
-          int valueOffset = kv.getValueOffset();
-          result += Bytes.toLong(buffer, valueOffset, Bytes.SIZEOF_LONG);
         }
 
         if (!results.isEmpty()) {
