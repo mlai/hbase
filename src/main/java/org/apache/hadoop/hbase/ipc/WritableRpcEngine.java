@@ -35,6 +35,7 @@ import javax.net.SocketFactory;
 import javax.security.auth.Subject;
 import javax.security.auth.login.LoginException;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.logging.*;
 
 import org.apache.hadoop.hbase.io.HbaseObjectWritable;
@@ -265,7 +266,8 @@ class WritableRpcEngine implements RpcEngine {
   
   /** Expert: Make multiple, parallel calls to a set of servers. */
   public Object[] call(Method method, Object[][] params,
-                       InetSocketAddress[] addrs, 
+                       InetSocketAddress[] addrs,
+                       Class<? extends VersionedProtocol> protocol,
                        UserGroupInformation ticket, Configuration conf)
     throws IOException, InterruptedException {
 
@@ -275,7 +277,7 @@ class WritableRpcEngine implements RpcEngine {
     HBaseClient client = CLIENTS.getClient(conf);
     try {
     Writable[] wrappedValues = 
-      client.call(invocations, addrs, (Class)method.getDeclaringClass(), ticket);
+      client.call(invocations, addrs, protocol, ticket);
     
     if (method.getReturnType() == Void.TYPE) {
       return null;
@@ -308,6 +310,7 @@ class WritableRpcEngine implements RpcEngine {
     private Class<?> implementation;
     private boolean verbose;
     private boolean authorize = false;
+    private Map<Class,Object> implementations = Maps.newHashMap();
 
     /** Construct an RPC server.
      * @param instance the instance whose methods will be called
@@ -343,6 +346,7 @@ class WritableRpcEngine implements RpcEngine {
       super(bindAddress, port, Invocation.class, numHandlers, conf, classNameBase(instance.getClass().getName()));
       this.instance = instance;
       this.implementation = instance.getClass();
+      this.implementations.put(instance.getClass(), instance);
       this.verbose = verbose;
       this.authorize = 
         conf.getBoolean(ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG, 
@@ -365,8 +369,13 @@ class WritableRpcEngine implements RpcEngine {
                                    call.getParameterClasses());
         method.setAccessible(true);
 
+        Object impl = this.instance;
+        if (this.implementations.containsKey(protocol)) {
+          impl = this.implementations.get(protocol);
+        }
+
         long startTime = System.currentTimeMillis();
-        Object value = method.invoke(instance, call.getParameters());
+        Object value = method.invoke(impl, call.getParameters());
         int processingTime = (int) (System.currentTimeMillis() - startTime);
         int qTime = (int) (startTime-receivedTime);
         if (LOG.isDebugEnabled()) {
@@ -397,6 +406,24 @@ class WritableRpcEngine implements RpcEngine {
         ioe.setStackTrace(e.getStackTrace());
         throw ioe;
       }
+    }
+
+    public <T extends VersionedProtocol> void registerProtocol(
+        Class<T> protocol,
+        T handler) throws Exception {
+      /* we need to prevent lower priority handlers (like coprocessors)
+       * from hijacking protocols already claimed by higher priority handlers
+       */
+      if (this.implementations.containsKey(protocol)) {
+        LOG.error("Protocol "+protocol.getName()+
+            " already registered, rejecting request from "+
+            handler
+        );
+        throw new IllegalStateException("Protocol "+protocol.getName()+
+            " is already registered");
+      }
+
+      this.implementations.put(protocol, handler);
     }
 
     /*

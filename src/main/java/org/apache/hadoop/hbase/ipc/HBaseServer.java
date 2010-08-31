@@ -1028,6 +1028,8 @@ public abstract class HBaseServer implements RpcServer {
 
     // Create the responder here
     responder = new Responder();
+
+    
   }
 
   protected void closeConnection(Connection connection) {

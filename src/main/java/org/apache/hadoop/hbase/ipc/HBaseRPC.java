@@ -309,13 +309,14 @@ public class HBaseRPC {
    * @return values
    * @throws IOException e
    */
-  @Deprecated
   public static Object[] call(Method method, Object[][] params,
-      InetSocketAddress[] addrs, UserGroupInformation ticket, 
+      InetSocketAddress[] addrs,
+      Class<? extends VersionedProtocol> protocol,
+      UserGroupInformation ticket,
       Configuration conf)
     throws IOException, InterruptedException {
     return getProtocolEngine(method.getDeclaringClass(), conf)
-      .call(method, params, addrs, ticket, conf);
+      .call(method, params, addrs, protocol, ticket, conf);
   }
 
   /**

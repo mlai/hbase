@@ -246,4 +246,9 @@ public interface HConnection {
    */
   public void prewarmRegionCache(final byte[] tableName,
       final Map<HRegionInfo, HServerAddress> regions);
+
+
+  /**
+   *
+   */
 }

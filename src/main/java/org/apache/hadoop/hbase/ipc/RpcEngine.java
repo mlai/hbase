@@ -40,6 +40,7 @@ interface RpcEngine {
 
   /** Expert: Make multiple, parallel calls to a set of servers. */
   Object[] call(Method method, Object[][] params, InetSocketAddress[] addrs,
+                Class<? extends VersionedProtocol> protocol,
                 UserGroupInformation ticket, Configuration conf)
     throws IOException, InterruptedException;
 

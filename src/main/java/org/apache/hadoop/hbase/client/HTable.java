@@ -36,8 +36,10 @@ import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
+import org.apache.hadoop.ipc.VersionedProtocol;
 
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -1160,5 +1162,21 @@ public class HTable implements HTableInterface {
   public static boolean getRegionCachePrefetch(final byte[] tableName) {
     return HConnectionManager.getConnection(HBaseConfiguration.create()).
     getRegionCachePrefetch(tableName);
+  }
+
+  public <T extends VersionedProtocol> T exec(Class<T> protocol, Row row) {
+    return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
+        new Class[]{protocol},
+        new ProxyRPCInvoker(protocol, tableName, row));
+  }
+
+  public <T extends VersionedProtocol> T exec(
+      Class<T> protocol, List<? extends Row> row) {
+    return null;
+  }
+
+  public <T extends VersionedProtocol> T exec(
+      Class<T> protocol, RowRange range) {
+    return null;
   }
 }
