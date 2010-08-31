@@ -33,6 +33,7 @@ import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
+import org.apache.hadoop.security.KerberosInfo;
 
 import java.io.IOException;
 import java.util.List;
@@ -43,6 +44,8 @@ import java.util.List;
  * <p>NOTE: if you change the interface, you must change the RPC version
  * number in HBaseRPCProtocolVersion
  */
+@KerberosInfo(
+    serverPrincipal = "hbase.regionserver.kerberos.principal")
 public interface HRegionInterface extends HBaseRPCProtocolVersion {
   /**
    * Get metainfo about an HRegion

@@ -104,6 +104,7 @@ import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.regionserver.metrics.RegionServerMetrics;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.replication.regionserver.Replication;
+import org.apache.hadoop.hbase.security.HBasePolicyProvider;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.InfoServer;
@@ -114,6 +115,7 @@ import org.apache.hadoop.hbase.zookeeper.ZooKeeperWrapper;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.net.DNS;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.WatchedEvent;
@@ -310,6 +312,10 @@ public class HRegionServer implements HRegionInterface,
     this.abortRequested = false;
     this.stopRequested.set(false);
 
+    SecurityUtil.login(conf, "hbase.regionserver.keytab.file",
+        "hbase.regionserver.kerberos.principal", address.getHostname());
+    HBasePolicyProvider.init(conf);
+
     // Server to handle client requests
     this.server = HBaseRPC.getServer(this, address.getBindAddress(),
       address.getPort(), conf.getInt("hbase.regionserver.handler.count", 10),
@@ -325,6 +331,7 @@ public class HRegionServer implements HRegionInterface,
       throw new NullPointerException("Server address cannot be null; " +
         "hbase-958 debugging");
     }
+
     reinitializeThreads();
     reinitializeZooKeeper();
     int nbBlocks = conf.getInt("hbase.regionserver.nbreservationblocks", 4);

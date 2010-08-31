@@ -82,15 +82,15 @@ public class JVMClusterUtil {
   public static JVMClusterUtil.RegionServerThread createRegionServerThread(final Configuration c,
     final Class<? extends HRegionServer> hrsc, final int index)
   throws IOException {
-      HRegionServer server;
-      try {
-        server = hrsc.getConstructor(Configuration.class).newInstance(c);
-      } catch (Exception e) {
-        IOException ioe = new IOException();
-        ioe.initCause(e);
-        throw ioe;
-      }
-      return new JVMClusterUtil.RegionServerThread(server, index);
+    HRegionServer server;
+    try {
+      server = hrsc.getConstructor(Configuration.class).newInstance(c);
+    } catch (Exception e) {
+      IOException ioe = new IOException();
+      ioe.initCause(e);
+      throw ioe;
+    }
+    return new JVMClusterUtil.RegionServerThread(server, index);
   }
 
   /**

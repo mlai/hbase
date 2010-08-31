@@ -85,6 +85,7 @@ import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
+import org.apache.hadoop.hbase.security.HBasePolicyProvider;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 import org.apache.hadoop.hbase.util.InfoServer;
@@ -98,6 +99,7 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.net.DNS;
+import org.apache.hadoop.security.SecurityUtil;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -175,14 +177,7 @@ public class HMaster extends Thread implements HMasterInterface,
    */
   public HMaster(Configuration conf) throws IOException {
     this.conf = conf;
-    
-    // Figure out if this is a fresh cluster start. This is done by checking the 
-    // number of RS ephemeral nodes. RS ephemeral nodes are created only after 
-    // the primary master has written the address to ZK. So this has to be done 
-    // before we race to write our address to zookeeper.
-    zooKeeperWrapper = ZooKeeperWrapper.createInstance(conf, HMaster.class.getName());
-    isClusterStartup = (zooKeeperWrapper.scanRSDirectory().size() == 0);
-    
+
     // Get my address and create an rpc server instance.  The rpc-server port
     // can be ephemeral...ensure we have the correct info
     HServerAddress a = new HServerAddress(getMyAddress(this.conf));
@@ -191,6 +186,19 @@ public class HMaster extends Thread implements HMasterInterface,
       false, conf);
     this.address = new HServerAddress(this.rpcServer.getListenerAddress());
 
+    // initialize server principal
+    SecurityUtil.login(conf, "hbase.master.keytab.file",
+        "hbase.master.kerberos.principal", this.address.getHostname());
+    HBasePolicyProvider.init(conf);
+
+
+    // Figure out if this is a fresh cluster start. This is done by checking the 
+    // number of RS ephemeral nodes. RS ephemeral nodes are created only after 
+    // the primary master has written the address to ZK. So this has to be done 
+    // before we race to write our address to zookeeper.
+    zooKeeperWrapper = ZooKeeperWrapper.createInstance(conf, HMaster.class.getName());
+    isClusterStartup = (zooKeeperWrapper.scanRSDirectory().size() == 0);
+    
     this.numRetries =  conf.getInt("hbase.client.retries.number", 2);
     this.threadWakeFrequency = conf.getInt(HConstants.THREAD_WAKE_FREQUENCY,
         10 * 1000);

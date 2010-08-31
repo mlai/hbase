@@ -26,6 +26,7 @@ import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.RetriesExhaustedException;
 import org.apache.hadoop.hbase.io.HbaseObjectWritable;
+import org.apache.hadoop.hbase.security.HBaseSaslRpcServer;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.net.NetUtils;
@@ -45,6 +46,20 @@ import java.net.InetSocketAddress;
 import java.net.SocketTimeoutException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.HashMap;
+
+import javax.net.SocketFactory;
+
+import org.apache.commons.logging.*;
+
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.SecretManager;
+import org.apache.hadoop.security.token.TokenIdentifier;
+import org.apache.hadoop.conf.*;
+import org.apache.hadoop.metrics.util.MetricsTimeVaryingRate;
+
+import org.apache.hadoop.net.NetUtils;
 
 /** A simple RPC mechanism.
  *
@@ -224,19 +239,16 @@ public class HBaseRPC {
   protected final static ClientCache CLIENTS = new ClientCache();
 
   private static class Invoker implements InvocationHandler {
+    private Class<? extends VersionedProtocol> protocol;
     private InetSocketAddress address;
     private UserGroupInformation ticket;
     private HBaseClient client;
     private boolean isClosed = false;
 
-    /**
-     * @param address address for invoker
-     * @param ticket ticket
-     * @param conf configuration
-     * @param factory socket factory
-     */
-    public Invoker(InetSocketAddress address, UserGroupInformation ticket,
-                   Configuration conf, SocketFactory factory) {
+    public Invoker(Class<? extends VersionedProtocol> protocol,
+        InetSocketAddress address, UserGroupInformation ticket,
+        Configuration conf, SocketFactory factory) {
+      this.protocol = protocol;
       this.address = address;
       this.ticket = ticket;
       this.client = CLIENTS.getClient(conf, factory);
@@ -250,7 +262,7 @@ public class HBaseRPC {
         startTime = System.currentTimeMillis();
       }
       HbaseObjectWritable value = (HbaseObjectWritable)
-        client.call(new Invocation(method, args), address, ticket);
+		  client.call(new Invocation(method, args), address, protocol, ticket);
       if (logDebug) {
         long callTime = System.currentTimeMillis() - startTime;
         LOG.debug("Call: " + method.getName() + " " + callTime);
@@ -316,6 +328,7 @@ public class HBaseRPC {
   }
 
   /**
+   * Get a proxy connection to a remote server
    * @param protocol protocol interface
    * @param clientVersion which client version we expect
    * @param addr address of remote service
@@ -326,7 +339,7 @@ public class HBaseRPC {
    * @throws IOException e
    */
   @SuppressWarnings("unchecked")
-  public static VersionedProtocol waitForProxy(Class protocol,
+  public static VersionedProtocol waitForProxy(Class<? extends VersionedProtocol> protocol,
                                                long clientVersion,
                                                InetSocketAddress addr,
                                                Configuration conf,
@@ -347,7 +360,7 @@ public class HBaseRPC {
             reconnectAttempts + " tries, giving up.");
           throw new RetriesExhaustedException("Failed setting up proxy to " +
             addr.toString() + " after attempts=" + reconnectAttempts);
-      }
+        }
       } catch(SocketTimeoutException te) {  // namenode is busy
         LOG.info("Problem connecting to server: " + addr);
         ioe = te;
@@ -378,10 +391,11 @@ public class HBaseRPC {
    * @return proxy
    * @throws IOException e
    */
-  public static VersionedProtocol getProxy(Class<?> protocol,
+  public static VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
       long clientVersion, InetSocketAddress addr, Configuration conf,
       SocketFactory factory) throws IOException {
-    return getProxy(protocol, clientVersion, addr, null, conf, factory);
+    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
+    return getProxy(protocol, clientVersion, addr, ugi, conf, factory);
   }
 
   /**
@@ -397,21 +411,25 @@ public class HBaseRPC {
    * @return proxy
    * @throws IOException e
    */
-  public static VersionedProtocol getProxy(Class<?> protocol,
+  public static VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
       long clientVersion, InetSocketAddress addr, UserGroupInformation ticket,
       Configuration conf, SocketFactory factory)
   throws IOException {
+    if (UserGroupInformation.isSecurityEnabled()) {
+      HBaseSaslRpcServer.init(conf);
+    }
     VersionedProtocol proxy =
         (VersionedProtocol) Proxy.newProxyInstance(
             protocol.getClassLoader(), new Class[] { protocol },
-            new Invoker(addr, ticket, conf, factory));
+            new Invoker(protocol, addr, ticket, conf, factory));
     long serverVersion = proxy.getProtocolVersion(protocol.getName(),
                                                   clientVersion);
     if (serverVersion == clientVersion) {
       return proxy;
+    } else {
+      throw new VersionMismatch(protocol.getName(), clientVersion,
+                                serverVersion);
     }
-    throw new VersionMismatch(protocol.getName(), clientVersion,
-                              serverVersion);
   }
 
   /**
@@ -424,12 +442,13 @@ public class HBaseRPC {
    * @return a proxy instance
    * @throws IOException e
    */
-  public static VersionedProtocol getProxy(Class<?> protocol,
+  public static VersionedProtocol getProxy(
+      Class<? extends VersionedProtocol> protocol,
       long clientVersion, InetSocketAddress addr, Configuration conf)
       throws IOException {
 
-    return getProxy(protocol, clientVersion, addr, conf, NetUtils
-        .getDefaultSocketFactory(conf));
+    return getProxy(protocol, clientVersion, addr, conf, 
+        NetUtils.getDefaultSocketFactory(conf));
   }
 
   /**
@@ -444,36 +463,39 @@ public class HBaseRPC {
 
   /**
    * Expert: Make multiple, parallel calls to a set of servers.
-   *
-   * @param method method to invoke
-   * @param params array of parameters
-   * @param addrs array of addresses
-   * @param conf configuration
-   * @return values
-   * @throws IOException e
+   * @deprecated Use {@link #call(Method, Object[][], InetSocketAddress[], UserGroupInformation, Configuration)} instead 
    */
   public static Object[] call(Method method, Object[][] params,
                               InetSocketAddress[] addrs, Configuration conf)
-    throws IOException {
+    throws IOException, InterruptedException {
+    return call(method, params, addrs, null, conf);
+  }
+
+  /** Expert: Make multiple, parallel calls to a set of servers. */
+  public static Object[] call(Method method, Object[][] params,
+                              InetSocketAddress[] addrs,
+                              UserGroupInformation ticket, Configuration conf)
+    throws IOException, InterruptedException {
 
     Invocation[] invocations = new Invocation[params.length];
     for (int i = 0; i < params.length; i++)
       invocations[i] = new Invocation(method, params[i]);
     HBaseClient client = CLIENTS.getClient(conf);
     try {
-    Writable[] wrappedValues = client.call(invocations, addrs);
+      Writable[] wrappedValues =
+          client.call(invocations, addrs, method.getDeclaringClass(), ticket);
 
-    if (method.getReturnType() == Void.TYPE) {
-      return null;
-    }
+      if (method.getReturnType() == Void.TYPE) {
+        return null;
+      }
 
-    Object[] values =
-      (Object[])Array.newInstance(method.getReturnType(), wrappedValues.length);
-    for (int i = 0; i < values.length; i++)
-      if (wrappedValues[i] != null)
-        values[i] = ((HbaseObjectWritable)wrappedValues[i]).get();
+      Object[] values =
+          (Object[])Array.newInstance(method.getReturnType(), wrappedValues.length);
+      for (int i = 0; i < values.length; i++)
+        if (wrappedValues[i] != null)
+          values[i] = ((HbaseObjectWritable)wrappedValues[i]).get();
 
-    return values;
+      return values;
     } finally {
       CLIENTS.stopClient(client);
     }
@@ -490,7 +512,8 @@ public class HBaseRPC {
    * @return Server
    * @throws IOException e
    */
-  public static Server getServer(final Object instance, final String bindAddress, final int port, Configuration conf)
+  public static Server getServer(final Object instance, final String bindAddress,
+      final int port, Configuration conf)
     throws IOException {
     return getServer(instance, bindAddress, port, 1, false, conf);
   }
@@ -512,7 +535,17 @@ public class HBaseRPC {
                                  final int numHandlers,
                                  final boolean verbose, Configuration conf)
     throws IOException {
-    return new Server(instance, conf, bindAddress, port, numHandlers, verbose);
+    return getServer(instance, bindAddress, port, numHandlers, verbose, conf, null);
+  }
+
+  /** Construct a server for a protocol implementation instance listening on a
+   * port and address, with a secret manager. */
+  public static Server getServer(final Object instance, final String bindAddress, final int port,
+                                 final int numHandlers,
+                                 final boolean verbose, Configuration conf,
+                                 SecretManager<? extends TokenIdentifier> secretManager)
+    throws IOException {
+    return new Server(instance, conf, bindAddress, port, numHandlers, verbose, secretManager);
   }
 
   /** An RPC Server. */
@@ -531,7 +564,7 @@ public class HBaseRPC {
      */
     public Server(Object instance, Configuration conf, String bindAddress, int port)
       throws IOException {
-      this(instance, conf,  bindAddress, port, 1, false);
+      this(instance, conf,  bindAddress, port, 1, false, null);
     }
 
     private static String classNameBase(String className) {
@@ -552,15 +585,18 @@ public class HBaseRPC {
      * @throws IOException e
      */
     public Server(Object instance, Configuration conf, String bindAddress,  int port,
-                  int numHandlers, boolean verbose) throws IOException {
-      super(bindAddress, port, Invocation.class, numHandlers, conf, classNameBase(instance.getClass().getName()));
+                  int numHandlers, boolean verbose,
+                  SecretManager<? extends TokenIdentifier> secretManager)
+        throws IOException {
+      super(bindAddress, port, Invocation.class, numHandlers, conf,
+          classNameBase(instance.getClass().getName()), secretManager);
       this.instance = instance;
       this.implementation = instance.getClass();
       this.verbose = verbose;
     }
 
     @Override
-    public Writable call(Writable param, long receivedTime) throws IOException {
+    public Writable call(Class<?> protocol, Writable param, long receivedTime) throws IOException {
       try {
         Invocation call = (Invocation)param;
         if(call.getMethodName() == null) {
@@ -569,8 +605,9 @@ public class HBaseRPC {
         }
         if (verbose) log("Call: " + call);
         Method method =
-          implementation.getMethod(call.getMethodName(),
+          protocol.getMethod(call.getMethodName(),
                                    call.getParameterClasses());
+        method.setAccessible(true);
 
         long startTime = System.currentTimeMillis();
         Object value = method.invoke(instance, call.getParameters());
@@ -583,7 +620,22 @@ public class HBaseRPC {
         }
         rpcMetrics.rpcQueueTime.inc(qTime);
         rpcMetrics.rpcProcessingTime.inc(processingTime);
-        rpcMetrics.inc(call.getMethodName(), processingTime);
+
+        MetricsTimeVaryingRate m =
+         (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(call.getMethodName());
+        if (m == null) {
+          try {
+            m = new MetricsTimeVaryingRate(call.getMethodName(),
+                rpcDetailedMetrics.registry);
+          } catch (IllegalArgumentException iae) {
+            // the metrics has been registered; re-fetch the handle
+            LOG.info("Error register " + call.getMethodName(), iae);
+            m = (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(
+                call.getMethodName());
+          }
+        }
+        m.inc(processingTime);
+
         if (verbose) log("Return: "+value);
 
         return new HbaseObjectWritable(method.getReturnType(), value);
@@ -597,6 +649,9 @@ public class HBaseRPC {
         ioe.setStackTrace(target.getStackTrace());
         throw ioe;
       } catch (Throwable e) {
+        if (!(e instanceof IOException)) {
+          LOG.error("Unexpected throwable object ", e);
+        }
         IOException ioe = new IOException(e.toString());
         ioe.setStackTrace(e.getStackTrace());
         throw ioe;
