@@ -488,8 +488,9 @@
   <properties>
     <compileSource>1.6</compileSource>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <hbase.version>0.89.0-security-SNAPSHOT</hbase.version>
-    <hadoop.version>0.20.104.2-append-SNAPSHOT</hadoop.version>
+
+    <hbase.version>0.90-tm-4</hbase.version>
+    <hadoop.version>0.20-tm-4</hadoop.version>
 
     <commons-cli.version>1.2</commons-cli.version>
     <commons-logging.version>1.1.1</commons-logging.version>
