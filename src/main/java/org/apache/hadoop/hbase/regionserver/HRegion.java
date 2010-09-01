@@ -1645,10 +1645,6 @@ public class HRegion implements HeapSize { // , Writable{
     familyMap = new HashMap<byte[], List<KeyValue>>();
     
     familyMap.put(family, edits);
-    
-    if (coprocessorHost != null) {
-      familyMap = coprocessorHost.onPut(familyMap);
-    }
     this.put(familyMap, true);
   }
 
