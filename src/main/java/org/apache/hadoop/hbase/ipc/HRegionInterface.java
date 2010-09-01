@@ -19,9 +19,15 @@
  */
 package org.apache.hadoop.hbase.ipc;
 
+import java.io.IOException;
+import java.util.List;
+import java.util.NavigableSet;
+
+import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.NotServingRegionException;
+import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.MultiPut;
@@ -29,11 +35,7 @@ import org.apache.hadoop.hbase.client.MultiPutResponse;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
-
-import java.io.IOException;
-import java.util.List;
 
 /**
  * Clients interact with HRegionServers using a handle to the HRegionInterface.
@@ -41,7 +43,7 @@ import java.util.List;
  * <p>NOTE: if you change the interface, you must change the RPC version
  * number in HBaseRPCProtocolVersion
  */
-public interface HRegionInterface extends HBaseRPCProtocolVersion {
+public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Abortable {
   /**
    * Get metainfo about an HRegion
    *
@@ -66,12 +68,6 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion {
   public Result getClosestRowBefore(final byte [] regionName,
     final byte [] row, final byte [] family)
   throws IOException;
-
-  /**
-   *
-   * @return the regions served by this regionserver
-   */
-  public HRegion [] getOnlineRegionsAsArray();
 
   /**
    * Perform Get operation.
@@ -258,11 +254,10 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion {
 
 
   /**
-   * Method used when a master is taking the place of another failed one.
-   * @return All regions assigned on this region server
+   * @return All regions online on this region server
    * @throws IOException e
    */
-  public HRegionInfo[] getRegionsAssignment() throws IOException;
+  public NavigableSet<HRegionInfo> getOnlineRegions();
 
   /**
    * Method used when a master is taking the place of another failed one.
@@ -287,6 +282,60 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion {
   public void bulkLoadHFile(String hfilePath,
       byte[] regionName, byte[] familyName) throws IOException;
 
+  // Master methods
+
+  /**
+   * Opens the specified region.
+   * @param region region to open
+   */
+  public void openRegion(final HRegionInfo region);
+
+  /**
+   * Closes the specified region.
+   * @param region region to close
+   * @return true if closing region, false if not
+   */
+  public boolean closeRegion(final HRegionInfo region)
+  throws NotServingRegionException;
+
+  // Region administrative methods
+
+  /**
+   * Flushes the MemStore of the specified region.
+   * <p>
+   * This method is synchronous.
+   * @param regionInfo region to flush
+   * @throws NotServingRegionException
+   * @throws IOException
+   */
+  void flushRegion(HRegionInfo regionInfo)
+  throws NotServingRegionException, IOException;
+
+  /**
+   * Splits the specified region.
+   * <p>
+   * This method currently flushes the region and then forces a compaction which
+   * will then trigger a split.  The flush is done synchronously but the
+   * compaction is asynchronous.
+   * @param regionInfo region to split
+   * @throws NotServingRegionException
+   * @throws IOException
+   */
+  void splitRegion(HRegionInfo regionInfo)
+  throws NotServingRegionException, IOException;
+
+  /**
+   * Compacts the specified region.  Performs a major compaction if specified.
+   * <p>
+   * This method is asynchronous.
+   * @param regionInfo region to compact
+   * @param major true to force major compaction
+   * @throws NotServingRegionException
+   * @throws IOException
+   */
+  void compactRegion(HRegionInfo regionInfo, boolean major)
+  throws NotServingRegionException, IOException;
+
   /**
    * Replicates the given entries. The guarantee is that the given entries
    * will be durable on the slave cluster if this method returns without
@@ -297,5 +346,4 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion {
    * @throws IOException
    */
   public void replicateLogEntries(HLog.Entry[] entries) throws IOException;
-
 }

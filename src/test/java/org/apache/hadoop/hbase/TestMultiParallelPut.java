@@ -20,6 +20,9 @@
 
 package org.apache.hadoop.hbase;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.client.Get;
@@ -28,9 +31,6 @@ import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.util.Bytes;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class TestMultiParallelPut extends MultiRegionTable {
   final Log LOG = LogFactory.getLog(getClass());
@@ -70,7 +70,8 @@ public class TestMultiParallelPut extends MultiRegionTable {
   }
 
   public void doATest(boolean doAbort) throws Exception {
-    HTable table = new HTable(TEST_TABLE);
+    conf.setInt("hbase.client.retries.number", 10);
+    HTable table = new HTable(conf, TEST_TABLE);
     table.setAutoFlush(false);
     table.setWriteBufferSize(10 * 1024 * 1024);
     for ( byte [] k : keys ) {
