@@ -40,11 +40,16 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.SplitTransaction;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.PairOfSameType;
+import org.apache.hadoop.hbase.Server;
+import org.mockito.Mockito;
+import org.apache.hadoop.hbase.HBaseTestingUtility;
+import static org.mockito.Mockito.when;
 
 public class TestCoprocessorInterface extends HBaseTestCase {
   static final Log LOG = LogFactory.getLog(TestCoprocessorInterface.class);
   static final String DIR = "test/build/data/TestCoprocessorInterface/";
-
+  private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
+  
   public static class CoprocessorImpl implements Coprocessor {
 
     private boolean opened;
@@ -168,18 +173,19 @@ public class TestCoprocessorInterface extends HBaseTestCase {
   }
 
   Configuration initSplit() {
-    Configuration conf = HBaseConfiguration.create();
     // Always compact if there is more than one store file.
-    conf.setInt("hbase.hstore.compactionThreshold", 2);
+    TEST_UTIL.getConfiguration().setInt("hbase.hstore.compactionThreshold", 2);
     // Make lease timeout longer, lease checks less frequent
-    conf.setInt("hbase.master.lease.thread.wakefrequency", 5 * 1000);
-    conf.setInt("hbase.regionserver.lease.period", 10 * 1000);
+    TEST_UTIL.getConfiguration().setInt("hbase.master.lease.thread.wakefrequency", 5 * 1000);
+    TEST_UTIL.getConfiguration().setInt("hbase.regionserver.lease.period", 10 * 1000);
     // Increase the amount of time between client retries
-    conf.setLong("hbase.client.pause", 15 * 1000);
+    TEST_UTIL.getConfiguration().setLong("hbase.client.pause", 15 * 1000);
     // This size should make it so we always split using the addContent
     // below.  After adding all data, the first region is 1.3M
-    conf.setLong("hbase.hregion.max.filesize", 1024 * 128);
-    return conf;
+    TEST_UTIL.getConfiguration().setLong("hbase.hregion.max.filesize", 1024 * 128);
+    TEST_UTIL.getConfiguration().setBoolean("hbase.testing.nocluster", true);
+
+    return TEST_UTIL.getConfiguration();
   }
 
   private HRegion [] split(final HRegion r, final byte [] splitRow)
@@ -195,7 +201,9 @@ public class TestCoprocessorInterface extends HBaseTestCase {
       assertTrue(false);
     }
     try {
-      PairOfSameType<HRegion> daughters = st.execute(null);
+      Server mockServer = Mockito.mock(Server.class);
+      when(mockServer.getConfiguration()).thenReturn(TEST_UTIL.getConfiguration());
+      PairOfSameType<HRegion> daughters = st.execute(mockServer, null);
       for (HRegion each_daughter: daughters) {
         regions[i] = each_daughter;
         i++;

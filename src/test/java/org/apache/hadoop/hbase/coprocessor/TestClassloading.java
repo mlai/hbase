@@ -94,7 +94,7 @@ public class TestClassloading extends HBaseClusterTestCase {
     // verify that the coprocessor was loaded
     boolean found = false;
     MiniHBaseCluster hbase = this.cluster;
-    for (HRegion region: hbase.getRegionServer(0).getOnlineRegions()) {
+    for (HRegion region: hbase.getRegionServer(0).getOnlineRegionsLocalContext()) {
       if (region.getRegionNameAsString().startsWith(getClass().getName())) {
         Coprocessor c = region.getCoprocessorHost().findCoprocessor(className);
         found = (c != null);

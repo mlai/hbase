@@ -184,7 +184,7 @@ public class SplitTransaction {
    * @return Regions created
    * @see #rollback(OnlineRegions)
    */
-  PairOfSameType<HRegion> execute(final Server server,
+  public PairOfSameType<HRegion> execute(final Server server,
       final RegionServerServices services)
   throws IOException {
     LOG.info("Starting split of region " + this.parent);
