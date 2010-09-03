@@ -5,6 +5,7 @@ import com.google.common.collect.Lists;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.ipc.HBaseRPC;
 import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -40,7 +41,8 @@ public class ProxyRPCInvoker implements InvocationHandler {
     this.conf = HBaseConfiguration.create();
   }
 
-  private InetSocketAddress[] getRowLocations() {
+  private InetSocketAddress[] getRowLocations()
+      throws ZooKeeperConnectionException {
     final HConnection conn = HConnectionManager.getConnection(conf);
     List<InetSocketAddress> locations = Lists.transform(rows,
         new Function<Row,InetSocketAddress>() {

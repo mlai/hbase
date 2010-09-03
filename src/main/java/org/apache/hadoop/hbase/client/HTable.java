@@ -32,6 +32,7 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
@@ -172,10 +173,8 @@ public class HTable implements HTableInterface {
    * @throws IOException if a remote or network exception occurs
    */
   int getCurrentNrHRS() throws IOException {
-    return HConnectionManager
-      .getClientZooKeeperWatcher(this.configuration)
-      .getZooKeeperWrapper()
-      .getRSDirectoryCount();
+    HBaseAdmin admin = new HBaseAdmin(this.configuration);
+    return admin.getClusterStatus().getServers();
   }
 
   // For multiput
@@ -558,7 +557,6 @@ public class HTable implements HTableInterface {
     return incrementColumnValue(row, family, qualifier, amount, true);
   }
 
-  @SuppressWarnings({"ThrowableInstanceNeverThrown"})
   public long incrementColumnValue(final byte [] row, final byte [] family,
       final byte [] qualifier, final long amount, final boolean writeToWAL)
   throws IOException {
@@ -632,7 +630,7 @@ public class HTable implements HTableInterface {
           public Boolean call() throws IOException {
             return server.checkAndDelete(
                 location.getRegionInfo().getRegionName(),
-                row, family, qualifier, value, delete) 
+                row, family, qualifier, value, delete)
             ? Boolean.TRUE : Boolean.FALSE;
           }
         }
@@ -1103,10 +1101,12 @@ public class HTable implements HTableInterface {
             Thread t = new Thread(group, r,
                                   namePrefix + threadNumber.getAndIncrement(),
                                   0);
-            if (!t.isDaemon())
-                t.setDaemon(true);
-            if (t.getPriority() != Thread.NORM_PRIORITY)
-                t.setPriority(Thread.NORM_PRIORITY);
+            if (!t.isDaemon()) {
+              t.setDaemon(true);
+            }
+            if (t.getPriority() != Thread.NORM_PRIORITY) {
+              t.setPriority(Thread.NORM_PRIORITY);
+            }
             return t;
         }
   }
@@ -1118,9 +1118,10 @@ public class HTable implements HTableInterface {
    * @param tableName name of table to configure.
    * @param enable Set to true to enable region cache prefetch. Or set to
    * false to disable it.
+   * @throws ZooKeeperConnectionException
    */
   public static void setRegionCachePrefetch(final byte[] tableName,
-      boolean enable) {
+      boolean enable) throws ZooKeeperConnectionException {
     HConnectionManager.getConnection(HBaseConfiguration.create()).
     setRegionCachePrefetch(tableName, enable);
   }
@@ -1133,9 +1134,10 @@ public class HTable implements HTableInterface {
    * @param tableName name of table to configure.
    * @param enable Set to true to enable region cache prefetch. Or set to
    * false to disable it.
+   * @throws ZooKeeperConnectionException
    */
   public static void setRegionCachePrefetch(final Configuration conf,
-      final byte[] tableName, boolean enable) {
+      final byte[] tableName, boolean enable) throws ZooKeeperConnectionException {
     HConnectionManager.getConnection(conf).setRegionCachePrefetch(
         tableName, enable);
   }
@@ -1146,9 +1148,10 @@ public class HTable implements HTableInterface {
    * @param tableName name of table to check
    * @return true if table's region cache prefecth is enabled. Otherwise
    * it is disabled.
+   * @throws ZooKeeperConnectionException
    */
   public static boolean getRegionCachePrefetch(final Configuration conf,
-      final byte[] tableName) {
+      final byte[] tableName) throws ZooKeeperConnectionException {
     return HConnectionManager.getConnection(conf).getRegionCachePrefetch(
         tableName);
   }
@@ -1158,8 +1161,9 @@ public class HTable implements HTableInterface {
    * @param tableName name of table to check
    * @return true if table's region cache prefecth is enabled. Otherwise
    * it is disabled.
+   * @throws ZooKeeperConnectionException
    */
-  public static boolean getRegionCachePrefetch(final byte[] tableName) {
+  public static boolean getRegionCachePrefetch(final byte[] tableName) throws ZooKeeperConnectionException {
     return HConnectionManager.getConnection(HBaseConfiguration.create()).
     getRegionCachePrefetch(tableName);
   }

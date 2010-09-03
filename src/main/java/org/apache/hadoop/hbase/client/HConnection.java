@@ -19,20 +19,21 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.HServerAddress;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.MasterNotRunningException;
-import org.apache.hadoop.hbase.ipc.HMasterInterface;
-import org.apache.hadoop.hbase.ipc.HRegionInterface;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWrapper;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.HServerAddress;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.MasterNotRunningException;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.hadoop.hbase.ipc.HMasterInterface;
+import org.apache.hadoop.hbase.ipc.HRegionInterface;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 
 /**
  * Cluster connection.
@@ -40,29 +41,23 @@ import java.util.concurrent.ExecutorService;
  */
 public interface HConnection {
   /**
-   * Retrieve ZooKeeperWrapper used by the connection.
-   * @return ZooKeeperWrapper handle being used by the connection.
+   * Retrieve ZooKeeperWatcher used by the connection.
+   * @return ZooKeeperWatcher handle being used by the connection.
    * @throws IOException if a remote or network exception occurs
    */
-  public ZooKeeperWrapper getZooKeeperWrapper() throws IOException;
+  public ZooKeeperWatcher getZooKeeperWatcher() throws IOException;
 
   /**
    * @return proxy connection to master server for this instance
    * @throws MasterNotRunningException if the master is not running
+   * @throws ZooKeeperConnectionException if unable to connect to zookeeper
    */
-  public HMasterInterface getMaster() throws MasterNotRunningException;
+  public HMasterInterface getMaster()
+  throws MasterNotRunningException, ZooKeeperConnectionException;
 
   /** @return - true if the master server is running */
-  public boolean isMasterRunning();
-
-  /**
-   * Checks if <code>tableName</code> exists.
-   * @param tableName Table to check.
-   * @return True if table exists already.
-   * @throws MasterNotRunningException if the master is not running
-   */
-  public boolean tableExists(final byte [] tableName)
-  throws MasterNotRunningException;
+  public boolean isMasterRunning()
+  throws MasterNotRunningException, ZooKeeperConnectionException;
 
   /**
    * A table that isTableEnabled == false and isTableDisabled == false
@@ -113,7 +108,7 @@ public interface HConnection {
    * lives in.
    * @param tableName name of the table <i>row</i> is in
    * @param row row key you're trying to find the region of
-   * @return HRegionLocation that describes where to find the reigon in
+   * @return HRegionLocation that describes where to find the region in
    * question
    * @throws IOException if a remote or network exception occurs
    */
@@ -131,12 +126,31 @@ public interface HConnection {
    * lives in, ignoring any value that might be in the cache.
    * @param tableName name of the table <i>row</i> is in
    * @param row row key you're trying to find the region of
-   * @return HRegionLocation that describes where to find the reigon in
+   * @return HRegionLocation that describes where to find the region in
    * question
    * @throws IOException if a remote or network exception occurs
    */
   public HRegionLocation relocateRegion(final byte [] tableName,
       final byte [] row)
+  throws IOException;
+
+  /**
+   * Gets the location of the region of <i>regionName</i>.
+   * @param regionName name of the region to locate
+   * @return HRegionLocation that describes where to find the region in
+   * question
+   * @throws IOException if a remote or network exception occurs
+   */
+  public HRegionLocation locateRegion(final byte [] regionName)
+  throws IOException;
+
+  /**
+   * Gets the locations of all regions in the specified table, <i>tableName</i>.
+   * @param tableName table to get regions of
+   * @return list of region locations for all regions of table
+   * @throws IOException
+   */
+  public List<HRegionLocation> locateRegions(byte[] tableName)
   throws IOException;
 
   /**
@@ -194,7 +208,7 @@ public interface HConnection {
    * @throws IOException if a remote or network exception occurs
    * @throws RuntimeException other unspecified error
    */
-  public <T> T getRegionServerWithoutRetries(ServerCallable<T> callable) 
+  public <T> T getRegionServerWithoutRetries(ServerCallable<T> callable)
   throws IOException, RuntimeException;
 
 

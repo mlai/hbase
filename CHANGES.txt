@@ -27,6 +27,9 @@ Release 0.21.0 - Unreleased
    HBASE-2771  Update our hadoop jar to be latest from 0.20-append branch
    HBASE-2803  Remove remaining Get code from Store.java,etc
    HBASE-2553  Revisit IncrementColumnValue implementation in 0.22
+   HBASE-2692  Master rewrite and cleanup for 0.90
+               (Karthik Ranganathan, Jon Gray & Stack)
+               
 
   BUG FIXES
    HBASE-1791  Timeout in IndexRecordWriter (Bradford Stephens via Andrew
@@ -488,6 +491,18 @@ Release 0.21.0 - Unreleased
                (Karthik Ranganathan via Stack)
    HBASE-2915  Deadlock between HRegion.ICV and HRegion.close
    HBASE-2920  HTable.checkAndPut/Delete doesn't handle null values
+   HBASE-2944  cannot alter bloomfilter setting for a column family from
+               hbase shell (Kannan via jgray)
+   HBASE-2948  bin/hbase shell broken (after hbase-2692)
+               (Sebastian Bauer via Stack)
+   HBASE-2954  Fix broken build caused by hbase-2692 commit
+   HBASE-2918  SequenceFileLogWriter doesnt make it clear if there is no
+               append by config or by missing lib/feature
+   HBASE-2799  "Append not enabled" warning should not show if hbase
+               root dir isn't on DFS
+   HBASE-2943  major_compact (and other admin commands) broken for .META.
+   HBASE-2643  Figure how to deal with eof splitting logs
+               (Nicolas Spiegelberg via Stack)
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -855,6 +870,17 @@ Release 0.21.0 - Unreleased
    HBASE-2904  Smart seeking using filters (Pranav via Ryan)
    HBASE-2922  HLog preparation and cleanup are done under the updateLock, 
                major slowdown
+   HBASE-1845  MultiGet, MultiDelete, and MultiPut - batched to the 
+               appropriate region servers (Marc Limotte via Ryan)
+   HBASE-2867  Have master show its address using hostname rather than IP
+   HBASE-2696  ZooKeeper cleanup and refactor
+   HBASE-2695  HMaster cleanup and refactor
+   HBASE-2692  Open daughters immediately on parent's regionserver
+   HBASE-2405  Close, split, open of regions in RegionServer are run by a single
+               thread only.
+   HBASE-1676  load balancing on a large cluster doesn't work very well
+   HBASE-2953  Edit of hbase-default.xml removing stale configs.
+   HBASE-2857  HBaseAdmin.tableExists() should not require a full meta scan
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts

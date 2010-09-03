@@ -394,7 +394,7 @@ public class FSUtils {
   public static Map<String, Integer> getTableFragmentation(
     final HMaster master)
   throws IOException {
-    Path path = master.getRootDir();
+    Path path = getRootDir(master.getConfiguration());
     // since HMaster.getFileSystem() is package private
     FileSystem fs = path.getFileSystem(master.getConfiguration());
     return getTableFragmentation(fs, path);
@@ -590,6 +590,16 @@ public class FSUtils {
     return append;
   }
 
+  /**
+   * @param conf
+   * @return True if this filesystem whose scheme is 'hdfs'.
+   * @throws IOException
+   */
+  public static boolean isHDFS(final Configuration conf) throws IOException {
+    FileSystem fs = FileSystem.get(conf);
+    String scheme = fs.getUri().getScheme();
+    return scheme.equalsIgnoreCase("hdfs");
+  }
 
   /*
    * Recover file lease. Used when a file might be suspect to be had been left open by another process. <code>p</code>
