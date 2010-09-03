@@ -2,13 +2,13 @@ package org.apache.hadoop.hbase.client;
 
 import com.google.common.base.Function;
 import com.google.common.collect.Lists;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.ipc.HBaseRPC;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.ipc.VersionedProtocol;
-import org.apache.hadoop.security.UserGroupInformation;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
@@ -17,14 +17,17 @@ import java.net.InetSocketAddress;
 import java.util.List;
 
 public class ProxyRPCInvoker implements InvocationHandler {
+  private static Log LOG = LogFactory.getLog(ProxyRPCInvoker.class);
+
   private Configuration conf;
   private Class<? extends VersionedProtocol> protocol;
   private byte[] table;
   private List<? extends Row> rows;
 
-  public ProxyRPCInvoker(Class<? extends VersionedProtocol> protocol,
+  public ProxyRPCInvoker(Configuration conf,
+      Class<? extends VersionedProtocol> protocol,
       byte[] table, Row row) {
-    this(protocol, table, Lists.newArrayList(row));
+    this(conf, protocol, table, Lists.newArrayList(row));
   }
 
   /*
@@ -33,12 +36,13 @@ public class ProxyRPCInvoker implements InvocationHandler {
   }
   */
 
-  public ProxyRPCInvoker(Class<? extends VersionedProtocol> protocol,
+  public ProxyRPCInvoker(Configuration conf,
+      Class<? extends VersionedProtocol> protocol,
       byte[] table, List<? extends Row> rows) {
+    this.conf = conf;
     this.protocol = protocol;
     this.table = table;
     this.rows = rows;
-    this.conf = HBaseConfiguration.create();
   }
 
   private InetSocketAddress[] getRowLocations()
@@ -52,6 +56,8 @@ public class ProxyRPCInvoker implements InvocationHandler {
                   .getServerAddress().getInetSocketAddress();
             }
             catch (IOException ioe) {
+              LOG.warn("Failed retrieving row location: "+
+                  Bytes.toStringBinary(r.getRow()), ioe);
               return null;
             }
           }
@@ -63,18 +69,19 @@ public class ProxyRPCInvoker implements InvocationHandler {
   @Override
   public Object invoke(Object instance, Method method, Object[] args)
       throws Throwable {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Call: "+method.getName()+", "+(args != null ? args.length : 0));
+    }
 
     InetSocketAddress[] locs = getRowLocations();
-    // is it weird to have a proxy wrapping a proxy?  yes.
-    // but rpc code doesn't make it easy to replace the inner proxy here
     if (locs != null) {
       Object[] results = HBaseRPC.call(method, new Object[][]{args}, locs,
-          protocol, UserGroupInformation.getCurrentUGI(), conf);
+          protocol, null, conf);
 
       if (results != null && results.length > 0) {
         return results[0];
       }
     }
-    return null;  //To change body of implemented methods use File | Settings | File Templates.
+    return null;
   }
 }

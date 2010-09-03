@@ -1171,7 +1171,7 @@ public class HTable implements HTableInterface {
   public <T extends VersionedProtocol> T exec(Class<T> protocol, Row row) {
     return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
         new Class[]{protocol},
-        new ProxyRPCInvoker(protocol, tableName, row));
+        new ProxyRPCInvoker(configuration, protocol, tableName, row));
   }
 
   public <T extends VersionedProtocol> T exec(

@@ -276,7 +276,7 @@ class WritableRpcEngine implements RpcEngine {
       invocations[i] = new Invocation(method, params[i]);
     HBaseClient client = CLIENTS.getClient(conf);
     try {
-    Writable[] wrappedValues = 
+    Writable[] wrappedValues =
       client.call(invocations, addrs, protocol, ticket);
     
     if (method.getReturnType() == Void.TYPE) {
@@ -408,9 +408,8 @@ class WritableRpcEngine implements RpcEngine {
       }
     }
 
-    public <T extends VersionedProtocol> void registerProtocol(
-        Class<T> protocol,
-        T handler) throws Exception {
+    public <T extends VersionedProtocol> boolean registerProtocol(
+        Class<T> protocol, T handler) {
       /* we need to prevent lower priority handlers (like coprocessors)
        * from hijacking protocols already claimed by higher priority handlers
        */
@@ -419,11 +418,11 @@ class WritableRpcEngine implements RpcEngine {
             " already registered, rejecting request from "+
             handler
         );
-        throw new IllegalStateException("Protocol "+protocol.getName()+
-            " is already registered");
+        return false;
       }
 
       this.implementations.put(protocol, handler);
+      return true;
     }
 
     /*

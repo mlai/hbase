@@ -37,7 +37,6 @@ public interface RpcServer {
 
   void setErrorHandler(HBaseRPCErrorHandler handler);
 
-  <T extends VersionedProtocol> void registerProtocol(Class<T> protocol,
-      T handler)
-      throws Exception;
+  <T extends VersionedProtocol> boolean registerProtocol(Class<T> protocol,
+      T handler);
 }

@@ -316,7 +316,7 @@ public class HBaseRPC {
       UserGroupInformation ticket,
       Configuration conf)
     throws IOException, InterruptedException {
-    return getProtocolEngine(method.getDeclaringClass(), conf)
+    return getProtocolEngine(protocol, conf)
       .call(method, params, addrs, protocol, ticket, conf);
   }
 
