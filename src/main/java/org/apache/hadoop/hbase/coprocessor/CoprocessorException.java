@@ -31,6 +31,10 @@ public class CoprocessorException extends IOException {
   public CoprocessorException() {
     super();
   }
+  
+  public CoprocessorException(Class<?> clazz, String s) {
+    super( "Coprocessor [" + clazz.getName() + "]: " + s);
+  }
 
   /**
    * Constructs the exception and supplies a string as the message
