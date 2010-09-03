@@ -45,17 +45,26 @@ public interface RegionObserver {
   throws CoprocessorException;
 
   /**
-   * Called as part of processing checkAndPut
+   * Called before the client perform a get()
+   * @param e the environment provided by the region server
+   * @param get the Get request
+   * @return the possibly returned result by coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get)
+  throws CoprocessorException;
+  /**
+   * Called after the client perform a get()
    * @param e the environment provided by the region server
    * @param get the Get request
    * @param results the result list
    * @return the possibly transformed result list to use
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public List<KeyValue> onGet(final CoprocessorEnvironment e, final Get get,
-    final List<KeyValue> results)
+  public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
+    List<KeyValue> results)
   throws CoprocessorException;
-
+  
   /**
    * Called when the client tests for existence using a Get.
    * @param e the environment provided by the region server
@@ -69,34 +78,66 @@ public interface RegionObserver {
   throws CoprocessorException;
 
   /**
-   * Called when the client stores a value.
+   * Called before the client stores a value.
    * @param e the environment provided by the region server
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public Map<byte[], List<KeyValue>> onPut(final CoprocessorEnvironment e,
+  public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
     final Map<byte[], List<KeyValue>> familyMap)
   throws CoprocessorException;
 
   /**
-   * Called when the client stores a value.
+   * Called after the client stores a value.
+   * @param e the environment provided by the region server
+   * @param familyMap map of family to edits for the given family.
+   * @return the possibly transformed map to actually use
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
+    final Map<byte[], List<KeyValue>> familyMap)
+  throws CoprocessorException;
+  
+  /**
+   * Called before the client stores a value.
    * @param e the environment provided by the region server
    * @param kv a KeyValue to store
    * @return the possibly transformed KeyValue to actually use
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public KeyValue onPut(final CoprocessorEnvironment e, final KeyValue kv)
+  public KeyValue prePut(final CoprocessorEnvironment e, final KeyValue kv)
+  throws CoprocessorException;
+  
+  /**
+   * Called before the client stores a value.
+   * @param e the environment provided by the region server
+   * @param kv a KeyValue to store
+   * @return the possibly transformed KeyValue to actually use
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public KeyValue postPut(final CoprocessorEnvironment e, final KeyValue kv)
   throws CoprocessorException;
 
   /**
-   * Called when the client deletes a value.
+   * Called before the client deletes a value.
    * @param e the environment provided by the region server
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public Map<byte[], List<KeyValue>> onDelete(final CoprocessorEnvironment e,
+  public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
+    final Map<byte[], List<KeyValue>> familyMap)
+  throws CoprocessorException;
+
+  /**
+   * Called after the client deletes a value.
+   * @param e the environment provided by the region server
+   * @param familyMap map of family to edits for the given family.
+   * @return the possibly transformed map to actually use
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
     final Map<byte[], List<KeyValue>> familyMap)
   throws CoprocessorException;
 

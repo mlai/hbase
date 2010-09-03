@@ -60,7 +60,12 @@ public class TestRegionObserverStacking extends TestCase {
 
     public void onFlush(final CoprocessorEnvironment e) { }
 
-    public Map<byte[], List<KeyValue>> onDelete(final CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
+        final Map<byte[], List<KeyValue>> familyMap) {
+      return familyMap;
+    }
+    
+    public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
         final Map<byte[], List<KeyValue>> familyMap) {
       return familyMap;
     }
@@ -70,7 +75,11 @@ public class TestRegionObserverStacking extends TestCase {
       return result;
     }
 
-    public List<KeyValue> onGet(final CoprocessorEnvironment e, final Get get,
+    public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get) {
+      return null;
+    }
+
+    public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
         List<KeyValue> results) {
       return results;
     }
@@ -80,7 +89,7 @@ public class TestRegionObserverStacking extends TestCase {
       return exists;
     }
 
-    public Map<byte[], List<KeyValue>> onPut(final CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       id = System.currentTimeMillis();
       try {
@@ -90,7 +99,20 @@ public class TestRegionObserverStacking extends TestCase {
       return familyMap;
     }
 
-    public KeyValue onPut(final CoprocessorEnvironment e, KeyValue kv) {
+    public KeyValue prePut(final CoprocessorEnvironment e, KeyValue kv) {
+      return kv;
+    }
+    public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
+        Map<byte[], List<KeyValue>> familyMap) {
+      id = System.currentTimeMillis();
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException ex) {
+      }
+      return familyMap;
+    }
+
+    public KeyValue postPut(final CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
 
@@ -120,7 +142,12 @@ public class TestRegionObserverStacking extends TestCase {
 
     public void onFlush(final CoprocessorEnvironment e) { }
 
-    public Map<byte[], List<KeyValue>> onDelete(final CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
+        final Map<byte[], List<KeyValue>> familyMap) {
+      return familyMap;
+    }
+    
+    public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
         final Map<byte[], List<KeyValue>> familyMap) {
       return familyMap;
     }
@@ -130,7 +157,11 @@ public class TestRegionObserverStacking extends TestCase {
       return result;
     }
 
-    public List<KeyValue> onGet(final CoprocessorEnvironment e, final Get get,
+    public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get) {
+      return null;
+    }
+
+    public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
         List<KeyValue> results) {
       return results;
     }
@@ -140,7 +171,7 @@ public class TestRegionObserverStacking extends TestCase {
       return exists;
     }
 
-    public Map<byte[], List<KeyValue>> onPut(final CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       id = System.currentTimeMillis();
       try {
@@ -150,7 +181,20 @@ public class TestRegionObserverStacking extends TestCase {
       return familyMap;
     }
 
-    public KeyValue onPut(final CoprocessorEnvironment e, KeyValue kv) {
+    public KeyValue prePut(final CoprocessorEnvironment e, KeyValue kv) {
+      return kv;
+    }
+    public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
+        Map<byte[], List<KeyValue>> familyMap) {
+      id = System.currentTimeMillis();
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException ex) {
+      }
+      return familyMap;
+    }
+
+    public KeyValue postPut(final CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
 
@@ -180,7 +224,12 @@ public class TestRegionObserverStacking extends TestCase {
 
     public void onFlush(final CoprocessorEnvironment e) { }
 
-    public Map<byte[], List<KeyValue>> onDelete(final CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
+        final Map<byte[], List<KeyValue>> familyMap) {
+      return familyMap;
+    }
+    
+    public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
         final Map<byte[], List<KeyValue>> familyMap) {
       return familyMap;
     }
@@ -190,7 +239,11 @@ public class TestRegionObserverStacking extends TestCase {
       return result;
     }
 
-    public List<KeyValue> onGet(final CoprocessorEnvironment e, final Get get,
+    public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get) {
+      return null;
+    }
+
+    public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
         List<KeyValue> results) {
       return results;
     }
@@ -200,7 +253,7 @@ public class TestRegionObserverStacking extends TestCase {
       return exists;
     }
 
-    public Map<byte[], List<KeyValue>> onPut(final CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       id = System.currentTimeMillis();
       try {
@@ -210,7 +263,20 @@ public class TestRegionObserverStacking extends TestCase {
       return familyMap;
     }
 
-    public KeyValue onPut(final CoprocessorEnvironment e, KeyValue kv) {
+    public KeyValue prePut(final CoprocessorEnvironment e, KeyValue kv) {
+      return kv;
+    }
+    public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
+        Map<byte[], List<KeyValue>> familyMap) {
+      id = System.currentTimeMillis();
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException ex) {
+      }
+      return familyMap;
+    }
+
+    public KeyValue postPut(final CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
 

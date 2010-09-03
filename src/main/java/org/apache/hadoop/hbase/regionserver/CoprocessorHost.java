@@ -543,16 +543,38 @@ public class CoprocessorHost {
 
   /**
    * @param get the Get request
+   * @return the possibly transformed result set to use
+   * @throws the CoprocessorException
+   */
+  public List<KeyValue> preGet(final Get get)
+  throws CoprocessorException {
+    try {
+      List<KeyValue> results = new ArrayList<KeyValue>();
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          results = ((RegionObserver)env.impl).preGet(env, get);
+        }
+      }
+      return results;
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * @param get the Get request
    * @param results the result set
    * @return the possibly transformed result set to use
+   * @throws the CoprocessorException
    */
-  public List<KeyValue> onGet(final Get get, List<KeyValue> results)
+  public List<KeyValue> postGet(final Get get, List<KeyValue> results)
   throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
         if (env.impl instanceof RegionObserver) {
-          results = ((RegionObserver)env.impl).onGet(env, get, results);
+          results = ((RegionObserver)env.impl).postGet(env, get, results);
         }
       }
       return results;
@@ -585,13 +607,13 @@ public class CoprocessorHost {
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
    */
-  public Map<byte[], List<KeyValue>> onPut(Map<byte[], List<KeyValue>> familyMap)
+  public Map<byte[], List<KeyValue>> prePut(Map<byte[], List<KeyValue>> familyMap)
   throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
         if (env.impl instanceof RegionObserver) {
-          familyMap = ((RegionObserver)env.impl).onPut(env, familyMap);
+          familyMap = ((RegionObserver)env.impl).prePut(env, familyMap);
         }
       }
       return familyMap;
@@ -601,15 +623,52 @@ public class CoprocessorHost {
   }
 
   /**
-   * @param kv KeyValue to store
-   * @return the possibly transformed KeyValue to actually use
+   * @param familyMap map of family to edits for the given family.
+   * @return the possibly transformed map to actually use
    */
-  public KeyValue onPut(KeyValue kv) throws CoprocessorException {
+  public Map<byte[], List<KeyValue>> postPut(Map<byte[], List<KeyValue>> familyMap)
+  throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
         if (env.impl instanceof RegionObserver) {
-          kv = ((RegionObserver)env.impl).onPut(env, kv);
+          familyMap = ((RegionObserver)env.impl).postPut(env, familyMap);
+        }
+      }
+      return familyMap;
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+  
+  /**
+   * @param kv KeyValue to store
+   * @return the possibly transformed KeyValue to actually use
+   */
+  public KeyValue prePut(KeyValue kv) throws CoprocessorException {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          kv = ((RegionObserver)env.impl).prePut(env, kv);
+        }
+      }
+      return kv;
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+  
+  /**
+   * @param kv KeyValue to store
+   * @return the possibly transformed KeyValue to actually use
+   */
+  public KeyValue postPut(KeyValue kv) throws CoprocessorException {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          kv = ((RegionObserver)env.impl).postPut(env, kv);
         }
       }
       return kv;
@@ -622,13 +681,32 @@ public class CoprocessorHost {
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
    */
-  public Map<byte[], List<KeyValue>> onDelete(Map<byte[], List<KeyValue>> familyMap)
+  public Map<byte[], List<KeyValue>> preDelete(Map<byte[], List<KeyValue>> familyMap)
   throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
         if (env.impl instanceof RegionObserver) {
-          familyMap = ((RegionObserver)env.impl).onDelete(env, familyMap);
+          familyMap = ((RegionObserver)env.impl).preDelete(env, familyMap);
+        }
+      }
+      return familyMap;
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * @param familyMap map of family to edits for the given family.
+   * @return the possibly transformed map to actually use
+   */
+  public Map<byte[], List<KeyValue>> postDelete(Map<byte[], List<KeyValue>> familyMap)
+  throws CoprocessorException {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          familyMap = ((RegionObserver)env.impl).postDelete(env, familyMap);
         }
       }
       return familyMap;

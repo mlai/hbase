@@ -59,8 +59,10 @@ public class TestRegionObserverInterface extends HBaseTestCase {
   public static class SimpleRegionObserver implements Coprocessor, RegionObserver {
     boolean beforeDelete = true;
     boolean scannerOpened = false;
-    boolean hadGet = false;
-    boolean hadPut = false;
+    boolean hadPreGet = false;
+    boolean hadPostGet = false;
+    boolean hadPrePut = false;
+    boolean hadPostPut = false;
 
     public void onOpen(final CoprocessorEnvironment e) { }
 
@@ -82,8 +84,15 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return exists;
     }
 
-    public List<KeyValue> onGet(CoprocessorEnvironment e, Get get, List<KeyValue> results) {
-      LOG.info("onGet: get=" + get);
+    public List<KeyValue> preGet(CoprocessorEnvironment e, Get get) {
+      // is there a way to test this hook?
+      LOG.info("preGet: get=" + get);
+      hadPreGet = true;
+      return null;
+    }
+
+    public List<KeyValue> postGet(CoprocessorEnvironment e, Get get, List<KeyValue> results) {
+      LOG.info("postGet: get=" + get);
       assertTrue(Bytes.equals(get.getRow(), ROW));
       if (beforeDelete) {
         assertNotNull(results.get(0));
@@ -95,24 +104,24 @@ public class TestRegionObserverInterface extends HBaseTestCase {
           if (Bytes.equals(kv.getFamily(), A)) {
             foundA = true;
           }
-          if (Bytes.equals(kv.getFamily(), A)) {
+          if (Bytes.equals(kv.getFamily(), B)) {
             foundB = true;
           }
-          if (Bytes.equals(kv.getFamily(), A)) {
+          if (Bytes.equals(kv.getFamily(), C)) {
             foundC = true;
           }
         }
         assertTrue(foundA);
         assertTrue(foundB);
         assertTrue(foundC);
-        hadGet = true;
+        hadPostGet = true;
       } else {
         assertTrue(results.isEmpty());
       }
       return results;
     }
 
-    public Map<byte[], List<KeyValue>> onPut(CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> prePut(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("onPut put=" + familyMap);
       List<KeyValue> kvs = familyMap.get(A);
@@ -127,17 +136,46 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       assertNotNull(kvs);
       assertNotNull(kvs.get(0));
       assertTrue(Bytes.equals(kvs.get(0).getQualifier(), C));
-      hadPut = true;
+      hadPrePut = true;
+      return familyMap;
+    }
+    
+    public Map<byte[], List<KeyValue>> postPut(CoprocessorEnvironment e,
+        Map<byte[], List<KeyValue>> familyMap) {
+      LOG.info("onPut put=" + familyMap);
+      List<KeyValue> kvs = familyMap.get(A);
+      assertNotNull(kvs);
+      assertNotNull(kvs.get(0));
+      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), A));
+      kvs = familyMap.get(B);
+      assertNotNull(kvs);
+      assertNotNull(kvs.get(0));
+      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), B));
+      kvs = familyMap.get(C);
+      assertNotNull(kvs);
+      assertNotNull(kvs.get(0));
+      assertTrue(Bytes.equals(kvs.get(0).getQualifier(), C));
+      hadPostPut = true;
       return familyMap;
     }
 
-    public KeyValue onPut(CoprocessorEnvironment e, KeyValue kv) {
+    public KeyValue prePut(CoprocessorEnvironment e, KeyValue kv) {
+      return kv;
+    }
+    
+    public KeyValue postPut(CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
 
-    public Map<byte[], List<KeyValue>> onDelete(CoprocessorEnvironment e,
+    public Map<byte[], List<KeyValue>> preDelete(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
-      LOG.info("onDelete: delete=" + familyMap);
+      LOG.info("preDelete: delete=" + familyMap);
+      beforeDelete = true;
+      return familyMap;
+    }
+    public Map<byte[], List<KeyValue>> postDelete(CoprocessorEnvironment e,
+        Map<byte[], List<KeyValue>> familyMap) {
+      LOG.info("postDelete: delete=" + familyMap);
       beforeDelete = false;
       return familyMap;
     }
@@ -164,14 +202,21 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       // not tested -- need to go through the RS to get here
     }
 
-    boolean hadGet() {
-      return hadGet;
+    boolean hadPreGet() {
+      return hadPreGet;
+    }
+    boolean hadPostGet() {
+      return hadPostGet;
     }
 
-    boolean hadPut() {
-      return hadPut;
+    boolean hadPrePut() {
+      return hadPrePut;
     }
-
+    
+    boolean hadPostPut() {
+      return hadPostPut;
+    }
+    
     boolean hadDelete() {
       return !beforeDelete;
     }
@@ -232,8 +277,10 @@ public class TestRegionObserverInterface extends HBaseTestCase {
     Coprocessor c = region.getCoprocessorHost()
       .findCoprocessor(SimpleRegionObserver.class.getName());
     assertNotNull(c);
-    assertTrue(((SimpleRegionObserver)c).hadGet());
-    assertTrue(((SimpleRegionObserver)c).hadPut());
+    assertTrue(((SimpleRegionObserver)c).hadPreGet());
+    assertTrue(((SimpleRegionObserver)c).hadPostGet());
+    assertTrue(((SimpleRegionObserver)c).hadPrePut());
+    assertTrue(((SimpleRegionObserver)c).hadPostPut());
     assertTrue(((SimpleRegionObserver)c).hadDelete());
   }
 }
