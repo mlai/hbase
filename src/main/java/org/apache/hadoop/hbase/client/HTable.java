@@ -41,13 +41,7 @@ import org.apache.hadoop.ipc.VersionedProtocol;
 
 import java.io.IOException;
 import java.lang.reflect.Proxy;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -1168,19 +1162,40 @@ public class HTable implements HTableInterface {
     getRegionCachePrefetch(tableName);
   }
 
-  public <T extends VersionedProtocol> T exec(Class<T> protocol, Row row) {
+  /**
+   * Creates and returns a proxy instance to the HRegionServer hosting the
+   * region containing the specified row.  The row given does not actually have
+   * to exist.  Whichever region the row would fall into will be used.
+   *
+   * @param protocol The class or interface defining the remote protocol
+   * @param row The row used to identify the remote region location
+   * @return
+   */
+  public <T extends VersionedProtocol> T proxy(Class<T> protocol, Row row) {
     return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
         new Class[]{protocol},
         new ProxyRPCInvoker(configuration, protocol, tableName, row));
   }
 
-  public <T extends VersionedProtocol> T exec(
-      Class<T> protocol, List<? extends Row> row) {
+  public <T extends VersionedProtocol, R> Map<Row,R> exec(
+      Class<T> protocol, List<? extends Row> rows, BatchCall<T,R> callable) {
+    Map<Row,R> results = new HashMap<Row,R>();
+    for (Row r : rows) {
+      T proxy = (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
+          new Class[]{protocol},
+          new ProxyRPCInvoker(configuration, protocol, tableName, r));
+      results.put(r, callable.call(proxy));
+    }
+
+    return results;
+  }
+
+  public <T extends VersionedProtocol, R> Map<Row,R> exec(
+      Class<T> protocol, RowRange range, BatchCall<T,R> callable) {
     return null;
   }
 
-  public <T extends VersionedProtocol> T exec(
-      Class<T> protocol, RowRange range) {
-    return null;
+  public static interface BatchCall<T,R> {
+    public R call(T instance);
   }
 }
