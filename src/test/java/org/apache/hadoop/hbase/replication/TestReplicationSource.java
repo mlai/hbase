@@ -33,6 +33,7 @@ import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import static org.junit.Assert.assertNotNull;
@@ -68,7 +69,7 @@ public class TestReplicationSource {
    * time reading logs that are being archived.
    * @throws Exception
    */
-  @Test
+  @Ignore @Test
   public void testLogMoving() throws Exception{
     Path logPath = new Path(logDir, "log");
     HLog.Writer writer = HLog.createWriter(fs, logPath, conf);
