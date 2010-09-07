@@ -44,6 +44,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.net.URLEncoder;
@@ -151,7 +152,7 @@ public class TestReplicationSourceManager {
     setUp();
   }
 
-  @Test
+  @Ignore @Test
   public void testLogRoll() throws Exception {
     long seq = 0;
     long baseline = 1000;

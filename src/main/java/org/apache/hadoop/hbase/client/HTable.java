@@ -46,6 +46,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -59,12 +60,25 @@ import java.io.DataOutput;
 /**
  * Used to communicate with a single HBase table.
  * 
- * This class is not thread safe for writes.
- * Gets, puts, and deletes take out a row lock for the duration
- * of their operation.  Scans (currently) do not respect
- * row locking.
+ * This class is not thread safe for updates; the underlying write buffer can
+ * be corrupted if multiple threads contend over a single HTable instance.
  * 
- * See {@link HBaseAdmin} to create, drop, list, enable and disable tables.
+ * <p>Instances of HTable passed the same {@link Configuration} instance will
+ * share connections to master and the zookeeper ensemble as well as caches of
+ * region locations.  This happens because they will all share the same
+ * {@link HConnection} instance (internally we keep a Map of {@link HConnection}
+ * instances keyed by {@link Configuration}).
+ * {@link HConnection} will read most of the
+ * configuration it needs from the passed {@link Configuration} on initial
+ * construction.  Thereafter, for settings such as
+ * <code>hbase.client.pause</code>, <code>hbase.client.retries.number</code>,
+ * and <code>hbase.client.rpc.maxattempts</code> updating their values in the
+ * passed {@link Configuration} subsequent to {@link HConnection} construction
+ * will go unnoticed.  To run with changed values, make a new
+ * {@link HTable} passing a new {@link Configuration} instance that has the
+ * new configuration.
+ * 
+ * @see HBaseAdmin for create, drop, list, enable and disable of tables.
  */
 public class HTable implements HTableInterface {
   private final HConnection connection;
@@ -77,14 +91,18 @@ public class HTable implements HTableInterface {
   private long currentWriteBufferSize;
   protected int scannerCaching;
   private int maxKeyValueSize;
-
+  private ExecutorService pool;  // For Multi
   private long maxScannerResultSize;
 
   /**
    * Creates an object to access a HBase table.
-   *
-   * @param tableName Name of the table.
+   * Internally it creates a new instance of {@link Configuration} and a new
+   * client to zookeeper as well as other resources.  It also comes up with 
+   * a fresh view of the cluster and must do discovery from scratch of region
+   * locations; i.e. it will not make use of already-cached region locations if
+   * available. Use only when being quick and dirty.
    * @throws IOException if a remote or network exception occurs
+   * @see #HTable(Configuration, String)
    */
   public HTable(final String tableName)
   throws IOException {
@@ -93,9 +111,14 @@ public class HTable implements HTableInterface {
 
   /**
    * Creates an object to access a HBase table.
-   *
+   * Internally it creates a new instance of {@link Configuration} and a new
+   * client to zookeeper as well as other resources.  It also comes up with 
+   * a fresh view of the cluster and must do discovery from scratch of region
+   * locations; i.e. it will not make use of already-cached region locations if
+   * available. Use only when being quick and dirty.
    * @param tableName Name of the table.
    * @throws IOException if a remote or network exception occurs
+   * @see #HTable(Configuration, String)
    */
   public HTable(final byte [] tableName)
   throws IOException {
@@ -104,7 +127,10 @@ public class HTable implements HTableInterface {
 
   /**
    * Creates an object to access a HBase table.
-   *
+   * Shares zookeeper connection and other resources with other HTable instances
+   * created with the same <code>conf</code> instance.  Uses already-populated
+   * region cache if one is available, populated by any other HTable instances
+   * sharing this <code>conf</code> instance.  Recommended.
    * @param conf Configuration object to use.
    * @param tableName Name of the table.
    * @throws IOException if a remote or network exception occurs
@@ -117,7 +143,10 @@ public class HTable implements HTableInterface {
 
   /**
    * Creates an object to access a HBase table.
-   *
+   * Shares zookeeper connection and other resources with other HTable instances
+   * created with the same <code>conf</code> instance.  Uses already-populated
+   * region cache if one is available, populated by any other HTable instances
+   * sharing this <code>conf</code> instance.  Recommended.
    * @param conf Configuration object to use.
    * @param tableName Name of the table.
    * @throws IOException if a remote or network exception occurs
@@ -144,13 +173,11 @@ public class HTable implements HTableInterface {
       HConstants.HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE_KEY,
       HConstants.DEFAULT_HBASE_CLIENT_SCANNER_MAX_RESULT_SIZE);
     this.maxKeyValueSize = conf.getInt("hbase.client.keyvalue.maxsize", -1);
-
-    int nrHRS = getCurrentNrHRS();
-    if (nrHRS == 0) {
-      // No servers running -- set default of 10 threads.
-      nrHRS = 10;
+    
+    int nrThreads = conf.getInt("hbase.htable.threads.max", getCurrentNrHRS());
+    if (nrThreads == 0) {
+      nrThreads = 1; // is there a better default?
     }
-    int nrThreads = conf.getInt("hbase.htable.threads.max", nrHRS);
 
     // Unfortunately Executors.newCachedThreadPool does not allow us to
     // set the maximum size of the pool, so we have to do it ourselves.
@@ -174,9 +201,6 @@ public class HTable implements HTableInterface {
     HBaseAdmin admin = new HBaseAdmin(this.configuration);
     return admin.getClusterStatus().getServers();
   }
-
-  // For multiput
-  private ExecutorService pool;
 
   /**
    * Tells whether or not a table is enabled or not.
@@ -508,6 +532,40 @@ public class HTable implements HTableInterface {
     );
   }
 
+  /**
+   * Method that does a batch call on Deletes, Gets and Puts.
+   *
+   * @param actions list of Get, Put, Delete objects
+   * @param results Empty Result[], same size as actions. Provides access to partial
+   * results, in case an exception is thrown. A null in the result array means that
+   * the call for that action failed, even after retries
+   * @throws IOException
+   */
+  public synchronized void batch(final List<Row> actions, final Result[] results) throws IOException {
+    connection.processBatch(actions, tableName, pool, results);
+  }
+
+  /**
+   * Method that does a batch call on Deletes, Gets and Puts.
+   * 
+   * @param actions list of Get, Put, Delete objects
+   * @return the results from the actions. A null in the return array means that
+   * the call for that action failed, even after retries
+   * @throws IOException
+   */
+  public synchronized Result[] batch(final List<Row> actions) throws IOException {
+    Result[] results = new Result[actions.size()];
+    connection.processBatch(actions, tableName, pool, results);
+    return results;
+  }
+
+  /**
+   * Deletes the specified cells/row.
+   * 
+   * @param delete The object that specifies what to delete.
+   * @throws IOException if a remote or network exception occurs.
+   * @since 0.20.0
+   */
   public void delete(final Delete delete)
   throws IOException {
     connection.getRegionServerWithRetries(
@@ -520,13 +578,28 @@ public class HTable implements HTableInterface {
     );
   }
 
+  /**
+   * Deletes the specified cells/rows in bulk.
+   * @param deletes List of things to delete. As a side effect, it will be modified:
+   * successful {@link Delete}s are removed. The ordering of the list will not change. 
+   * @throws IOException if a remote or network exception occurs. In that case
+   * the {@code deletes} argument will contain the {@link Delete} instances
+   * that have not be successfully applied.
+   * @since 0.20.1
+   */
   public void delete(final List<Delete> deletes)
   throws IOException {
-    int last = 0;
-    try {
-      last = connection.processBatchOfDeletes(deletes, this.tableName);
-    } finally {
-      deletes.subList(0, last).clear();
+    Result[] results = new Result[deletes.size()];
+    connection.processBatch((List) deletes, tableName, pool, results);
+
+    // mutate list so that it is empty for complete success, or contains only failed records
+    // results are returned in the same order as the requests in list
+    // walk the list backwards, so we can remove from list without impacting the indexes of earlier members
+    for (int i = results.length - 1; i>=0; i--) {
+      // if result is not null, it succeeded
+      if (results[i] != null) {
+        deletes.remove(i);
+      }
     }
   }
 
@@ -657,10 +730,17 @@ public class HTable implements HTableInterface {
     );
   }
 
+  /**
+   * Executes all the buffered {@link Put} operations.
+   * <p>
+   * This method gets called once automatically for every {@link Put} or batch
+   * of {@link Put}s (when {@link #batch(List)} is used) when
+   * {@link #isAutoFlush()} is {@code true}.
+   * @throws IOException if a remote or network exception occurs.
+   */
   public void flushCommits() throws IOException {
     try {
-      connection.processBatchOfPuts(writeBuffer,
-          tableName, pool);
+      connection.processBatchOfPuts(writeBuffer, tableName, pool);
     } finally {
       // the write buffer was adjusted by processBatchOfPuts
       currentWriteBufferSize = 0;
@@ -670,6 +750,10 @@ public class HTable implements HTableInterface {
     }
   }
 
+  /**
+   * Close down this HTable instance.
+   * Calls {@link #flushCommits()}.
+   */
   public void close() throws IOException{
     flushCommits();
   }
