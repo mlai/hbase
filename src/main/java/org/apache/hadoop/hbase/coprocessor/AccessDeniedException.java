@@ -19,34 +19,33 @@
  */
 package org.apache.hadoop.hbase.coprocessor;
 
-import org.apache.hadoop.hbase.DoNotRetryIOException;
+import java.io.IOException;
 
 /**
- * Thrown if a coprocessor encounters any exception.
+ * Exception thrown by access-related methods.
  */
-public class CoprocessorException extends DoNotRetryIOException {
-  private static final long serialVersionUID = 4357922136679804887L;
+public class AccessDeniedException extends CoprocessorException {
+  private static final long serialVersionUID = 1913879564363001780L;
 
   /** Default Constructor */
-  public CoprocessorException() {
+  public AccessDeniedException() {
     super();
   }
-  
+
   /**
    * Constructor with a Class object and exception message.
    * @param clazz
    * @param s
    */
-  public CoprocessorException(Class<?> clazz, String s) {
-    super( "Coprocessor [" + clazz.getName() + "]: " + s);
+  public AccessDeniedException(Class<?> clazz, String s) {
+    super(clazz, s);
   }
 
   /**
    * Constructs the exception and supplies a string as the message
-   * @param s - message
+   * @param s message
    */
-  public CoprocessorException(String s) {
+  public AccessDeniedException(String s) {
     super(s);
   }
-
 }

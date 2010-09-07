@@ -63,7 +63,6 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.RowLock;
 import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.IncompatibleFilterException;
 import org.apache.hadoop.hbase.io.HeapSize;
@@ -301,7 +300,7 @@ public class HRegion implements HeapSize { // , Writable{
     this.blockingMemStoreSize = this.memstoreFlushSize *
       conf.getLong("hbase.hregion.memstore.block.multiplier", 2);
 
-    this.coprocessorHost = new CoprocessorHost(this);
+    this.coprocessorHost = new CoprocessorHost(this, conf);
   }
 
   /**

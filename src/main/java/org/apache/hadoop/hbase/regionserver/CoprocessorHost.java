@@ -34,6 +34,7 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
 import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.conf.Configuration;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,6 +45,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.apache.hadoop.hbase.coprocessor.RBACCoprocessor;
 
 /**
  * Implements the coprocessor environment and runtime support.
@@ -299,8 +302,42 @@ public class CoprocessorHost {
    * Constructor
    * @param region the region
    */
-  public CoprocessorHost(HRegion region) {
+  public CoprocessorHost(HRegion region, Configuration conf) {
     this.region = region;
+    
+    load(conf);
+  }
+  
+  /**
+   * Load system coprocessors. Read the class names from configuration.
+   * Called by constructor.
+   */
+  private void load(Configuration conf) {
+    Class<?> implClass = null;
+
+    // load default coprocessors from configure file
+    String defaultCPClasses = conf.get("hbase.coprocessor.default.classes", 
+        "org.apache.hadoop.hbase.coprocessor.RBACCoprocessor");
+    StringTokenizer st = new StringTokenizer(defaultCPClasses, ",");
+    while (st.hasMoreTokens()) {
+      String className = st.nextToken();
+      if (findCoprocessor(className) != null) { 
+        continue;
+      }
+      ClassLoader cl = ClassLoader.getSystemClassLoader();
+      Thread.currentThread().setContextClassLoader(cl);
+      try {
+        implClass = cl.loadClass(className);
+        load(implClass, Coprocessor.Priority.SYSTEM);
+        LOG.info("System coprocessor -- " + className + " -- is loaded successfully.");
+      } catch (ClassNotFoundException e) {
+        LOG.warn("Class " + className + " cannot be found. " + 
+            e.getMessage());
+      } catch (IOException e) {
+        LOG.warn("Load coprocessor " + className + " failed. " +
+            e.getMessage());
+      }
+    }
   }
 
   /**
