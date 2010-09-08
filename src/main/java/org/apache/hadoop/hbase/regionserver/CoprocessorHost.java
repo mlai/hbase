@@ -203,6 +203,21 @@ public class CoprocessorHost {
         throw new RuntimeException(
           "row locking is not allowed within the coprocessor environment");
       }
+      
+      @Override
+      public void batch(List<Row> actions, Result[] results) throws IOException {
+        table.batch(actions, results);
+      }
+      
+      @Override
+      public Result[] batch(List<Row> actions) throws IOException {
+        return table.batch(actions);
+      }
+      
+      @Override
+      public Result[] get(List<Get> gets) throws IOException {
+        return table.get(gets);
+      }
     }
 
     /** The coprocessor */
