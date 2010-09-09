@@ -31,10 +31,7 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor.Priority;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
@@ -46,62 +43,9 @@ import junit.framework.TestCase;
 public class TestRegionObserverStacking extends TestCase {
   static final String DIR = "test/build/data/TestRegionObserverStacking/";
 
-  public static class ObserverA implements Coprocessor, RegionObserver {
-    long id;
-
-    public void onOpen(final CoprocessorEnvironment e) { }
-
-    public void onClose(final CoprocessorEnvironment e, final boolean abortRequested) {}
-
-    public void onSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r) { }
-
-    public void onCompact(final CoprocessorEnvironment e, final boolean complete,
-        final boolean willSplit) { }
-
-    public void onFlush(final CoprocessorEnvironment e) { }
-
-    public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
-        final Map<byte[], List<KeyValue>> familyMap) {
-      return familyMap;
-    }
-    
-    public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
-        final Map<byte[], List<KeyValue>> familyMap) {
-      return familyMap;
-    }
-
-    public Result onGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
-        final byte[] family, Result result) {
-      return result;
-    }
-
-    public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get) {
-      return null;
-    }
-
-    public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
-        List<KeyValue> results) {
-      return results;
-    }
-
-    public boolean onExists(final CoprocessorEnvironment e, final Get get,
-        boolean exists) {
-      return exists;
-    }
-
-    public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      id = System.currentTimeMillis();
-      try {
-        Thread.sleep(10);
-      } catch (InterruptedException ex) {
-      }
-      return familyMap;
-    }
-
-    public KeyValue prePut(final CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
+  public static class ObserverA extends BaseRegionObserver {
+    long id; 
+    @Override
     public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       id = System.currentTimeMillis();
@@ -111,79 +55,11 @@ public class TestRegionObserverStacking extends TestCase {
       }
       return familyMap;
     }
-
-    public KeyValue postPut(final CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
-
-    public void onScannerOpen(final CoprocessorEnvironment e, final Scan scan,
-        final long scannerId) { }
-
-    public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
-        final long scannerId, List<KeyValue> results) {
-      return results;
-    }
-
-    public void onScannerClose(final CoprocessorEnvironment e, final long scannerId) { }
-
   }
 
-  public static class ObserverB implements Coprocessor, RegionObserver {
+  public static class ObserverB extends BaseRegionObserver {
     long id;
-
-    public void onOpen(final CoprocessorEnvironment e) { }
-
-    public void onClose(final CoprocessorEnvironment e, final boolean abortRequested) {}
-
-    public void onSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r) { }
-
-    public void onCompact(final CoprocessorEnvironment e, final boolean complete,
-        final boolean willSplit) { }
-
-    public void onFlush(final CoprocessorEnvironment e) { }
-
-    public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
-        final Map<byte[], List<KeyValue>> familyMap) {
-      return familyMap;
-    }
-    
-    public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
-        final Map<byte[], List<KeyValue>> familyMap) {
-      return familyMap;
-    }
-
-    public Result onGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
-        final byte[] family, Result result) {
-      return result;
-    }
-
-    public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get) {
-      return null;
-    }
-
-    public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
-        List<KeyValue> results) {
-      return results;
-    }
-
-    public boolean onExists(final CoprocessorEnvironment e, final Get get,
-        boolean exists) {
-      return exists;
-    }
-
-    public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      id = System.currentTimeMillis();
-      try {
-        Thread.sleep(10);
-      } catch (InterruptedException ex) {
-      }
-      return familyMap;
-    }
-
-    public KeyValue prePut(final CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
+    @Override
     public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       id = System.currentTimeMillis();
@@ -193,79 +69,12 @@ public class TestRegionObserverStacking extends TestCase {
       }
       return familyMap;
     }
-
-    public KeyValue postPut(final CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
-
-    public void onScannerOpen(final CoprocessorEnvironment e, final Scan scan,
-        final long scannerId) { }
-
-    public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
-        final long scannerId, List<KeyValue> results) {
-      return results;
-    }
-
-    public void onScannerClose(final CoprocessorEnvironment e, final long scannerId) { }
-
   }
 
-  public static class ObserverC implements Coprocessor, RegionObserver {
+  public static class ObserverC extends BaseRegionObserver {
     long id;
-
-    public void onOpen(final CoprocessorEnvironment e) { }
-
-    public void onClose(final CoprocessorEnvironment e, final boolean abortRequested) {}
-
-    public void onSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r) { }
-
-    public void onCompact(final CoprocessorEnvironment e, final boolean complete,
-        final boolean willSplit) { }
-
-    public void onFlush(final CoprocessorEnvironment e) { }
-
-    public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
-        final Map<byte[], List<KeyValue>> familyMap) {
-      return familyMap;
-    }
     
-    public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
-        final Map<byte[], List<KeyValue>> familyMap) {
-      return familyMap;
-    }
-
-    public Result onGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
-        final byte[] family, Result result) {
-      return result;
-    }
-
-    public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get) {
-      return null;
-    }
-
-    public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
-        List<KeyValue> results) {
-      return results;
-    }
-
-    public boolean onExists(final CoprocessorEnvironment e, final Get get,
-        boolean exists) {
-      return exists;
-    }
-
-    public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
-        Map<byte[], List<KeyValue>> familyMap) {
-      id = System.currentTimeMillis();
-      try {
-        Thread.sleep(10);
-      } catch (InterruptedException ex) {
-      }
-      return familyMap;
-    }
-
-    public KeyValue prePut(final CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
+    @Override
     public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       id = System.currentTimeMillis();
@@ -275,21 +84,6 @@ public class TestRegionObserverStacking extends TestCase {
       }
       return familyMap;
     }
-
-    public KeyValue postPut(final CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
-
-    public void onScannerOpen(final CoprocessorEnvironment e, final Scan scan,
-        final long scannerId) { }
-
-    public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
-        final long scannerId, List<KeyValue> results) {
-      return results;
-    }
-
-    public void onScannerClose(final CoprocessorEnvironment e, final long scannerId) { }
-
   }
 
   HRegion initHRegion (byte [] tableName, String callingMethod,

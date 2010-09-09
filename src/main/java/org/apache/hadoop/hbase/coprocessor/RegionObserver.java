@@ -32,7 +32,19 @@ import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 public interface RegionObserver {
 
   /**
-   * Called when a client makes a GetClosestRowBefore request.
+   * Called before a client makes a GetClosestRowBefore request.
+   * @param e the environment provided by the region server
+   * @param row the row
+   * @param result the result set
+   * @return the result set to return to the client
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public Result preGetClosestRowBefore(final CoprocessorEnvironment e,
+    final byte [] row, final byte [] family, final Result result)
+  throws CoprocessorException;
+  
+  /**
+   * Called after a client makes a GetClosestRowBefore request.
    * @param e the environment provided by the region server
    * @param row the row
    * @param family the desired family
@@ -40,7 +52,7 @@ public interface RegionObserver {
    * @return the result set to return to the client
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public Result onGetClosestRowBefore(final CoprocessorEnvironment e,
+  public Result postGetClosestRowBefore(final CoprocessorEnvironment e,
     final byte [] row, final byte [] family, final Result result)
   throws CoprocessorException;
 
@@ -48,10 +60,12 @@ public interface RegionObserver {
    * Called before the client perform a get()
    * @param e the environment provided by the region server
    * @param get the Get request
+   * @param results the result list
    * @return the possibly returned result by coprocessor
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get)
+  public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get,
+      List<KeyValue> results)
   throws CoprocessorException;
   /**
    * Called after the client perform a get()
@@ -66,14 +80,26 @@ public interface RegionObserver {
   throws CoprocessorException;
   
   /**
-   * Called when the client tests for existence using a Get.
+   * Called before the client tests for existence using a Get.
    * @param e the environment provided by the region server
    * @param get the Get request
    * @param exists the result returned by the region server
    * @return the result to return to the client
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public boolean onExists(final CoprocessorEnvironment e, final Get get,
+  public boolean preExists(final CoprocessorEnvironment e, final Get get,
+    final boolean exists)
+  throws CoprocessorException;
+  
+  /**
+   * Called after the client tests for existence using a Get.
+   * @param e the environment provided by the region server
+   * @param get the Get request
+   * @param exists the result returned by the region server
+   * @return the result to return to the client
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public boolean postExists(final CoprocessorEnvironment e, final Get get,
     final boolean exists)
   throws CoprocessorException;
 
@@ -142,35 +168,66 @@ public interface RegionObserver {
   throws CoprocessorException;
 
   /**
-   * Called when the client opens a new scanner.
+   * Called before the client opens a new scanner.
+   * @param e the environment provided by the region server
+   * @param scan the Scan specification
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void preScannerOpen(final CoprocessorEnvironment e, final Scan scan)
+  throws CoprocessorException;
+  
+  /**
+   * Called after the client opens a new scanner.
    * @param e the environment provided by the region server
    * @param scan the Scan specification
    * @param scannerId the scanner id allocated by the region server
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onScannerOpen(final CoprocessorEnvironment e, final Scan scan,
+  public void postScannerOpen(final CoprocessorEnvironment e, final Scan scan,
     final long scannerId)
   throws CoprocessorException;
 
   /**
-   * Called when the client asks for the next row on a scanner.
+   * Called before the client asks for the next row on a scanner.
    * @param e the environment provided by the region server
    * @param scannerId the scanner id
    * @param results the result set returned by the region server
    * @return the possibly transformed result set to actually return
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
+  public List<KeyValue> preScannerNext(final CoprocessorEnvironment e,
+    final long scannerId, final List<KeyValue> results)
+  throws CoprocessorException;
+  
+  /**
+   * Called after the client asks for the next row on a scanner.
+   * @param e the environment provided by the region server
+   * @param scannerId the scanner id
+   * @param results the result set returned by the region server
+   * @return the possibly transformed result set to actually return
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public List<KeyValue> postScannerNext(final CoprocessorEnvironment e,
     final long scannerId, final List<KeyValue> results)
   throws CoprocessorException;
 
   /**
-   * Called when the client closes a scanner.
+   * Called before the client closes a scanner.
    * @param e the environment provided by the region server
    * @param scannerId the scanner id
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onScannerClose(final CoprocessorEnvironment e,
+  public void preScannerClose(final CoprocessorEnvironment e,
+      final long scannerId)
+  throws CoprocessorException;
+  
+  /**
+   * Called after the client closes a scanner.
+   * @param e the environment provided by the region server
+   * @param scannerId the scanner id
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void postScannerClose(final CoprocessorEnvironment e,
       final long scannerId)
   throws CoprocessorException;
 }

@@ -321,6 +321,9 @@ public class HRegion implements HeapSize { // , Writable{
    */
   public long initialize(final Progressable reporter)
   throws IOException {
+    if (coprocessorHost != null) {
+      coprocessorHost.preOpen();
+    }
     // A region can be reopened if failed a split; reset flags
     this.closing.set(false);
     this.closed.set(false);
@@ -363,7 +366,7 @@ public class HRegion implements HeapSize { // , Writable{
     LOG.info("Onlined " + this.toString() + "; next sequenceid=" + nextSeqid);
 
     if (coprocessorHost != null) {
-      coprocessorHost.onOpen();
+      coprocessorHost.postOpen();
     }
     return nextSeqid;
   }
@@ -481,7 +484,7 @@ public class HRegion implements HeapSize { // , Writable{
     }
 
     if (coprocessorHost != null) {
-      this.coprocessorHost.onClose(abort);
+      this.coprocessorHost.preClose(abort);
     }
 
     boolean wasFlushing = false;
@@ -529,6 +532,10 @@ public class HRegion implements HeapSize { // , Writable{
         result.addAll(store.close());
       }
       this.closed.set(true);
+
+      if (coprocessorHost != null) {
+        this.coprocessorHost.postClose(abort);
+      }      
       LOG.info("Closed " + this);
       return result;
     } finally {
@@ -715,7 +722,7 @@ public class HRegion implements HeapSize { // , Writable{
         return splitRow;
       }
       if (coprocessorHost != null) {
-        coprocessorHost.onCompact(false, false);
+        coprocessorHost.preCompact(false);
       }
       try {
         synchronized (writestate) {
@@ -751,7 +758,7 @@ public class HRegion implements HeapSize { // , Writable{
       }
     } finally {
       if (coprocessorHost != null) {
-        coprocessorHost.onCompact(true, splitRow != null);
+        coprocessorHost.postCompact(splitRow != null);
       }
       lock.readLock().unlock();
     }
@@ -790,6 +797,9 @@ public class HRegion implements HeapSize { // , Writable{
         LOG.debug("Skipping flush on " + this + " because closed");
         return false;
       }
+      if (coprocessorHost != null) {
+        coprocessorHost.preFlush();
+      }
       try {
         synchronized (writestate) {
           if (!writestate.flushing && writestate.writesEnabled) {
@@ -805,7 +815,7 @@ public class HRegion implements HeapSize { // , Writable{
           }
         }
         if (coprocessorHost != null) {
-          coprocessorHost.onFlush();
+          coprocessorHost.postFlush();
         }
         return internalFlushcache();
       } finally {
@@ -1028,6 +1038,10 @@ public class HRegion implements HeapSize { // , Writable{
    */
   public Result getClosestRowBefore(final byte [] row, final byte [] family)
   throws IOException {
+    Result result = null;
+    if (coprocessorHost != null) {
+      result = coprocessorHost.preGetClosestRowBefore(row, family, result);
+    }
     // look across all the HStores for this region and determine what the
     // closest key is across all column families, since the data may be sparse
     KeyValue key = null;
@@ -1036,7 +1050,6 @@ public class HRegion implements HeapSize { // , Writable{
     try {
       Store store = getStore(family);
       KeyValue kv = new KeyValue(row, HConstants.LATEST_TIMESTAMP);
-      Result result = null;
       // get the closest key. (HStore.getRowKeyAtOrBefore can return null)
       key = store.getRowKeyAtOrBefore(kv);
       if (key != null) {
@@ -1045,7 +1058,7 @@ public class HRegion implements HeapSize { // , Writable{
         result = get(get, null);
       }
       if (coprocessorHost != null) {
-        result = coprocessorHost.onGetClosestRowBefore(row, family, result);
+        result = coprocessorHost.postGetClosestRowBefore(row, family, result);
       }
       return result;
     } finally {
@@ -1089,9 +1102,12 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   protected InternalScanner instantiateInternalScanner(Scan scan, List<KeyValueScanner> additionalScanners) throws IOException {
+    if (coprocessorHost != null) {
+      coprocessorHost.preScannerOpen(scan);
+    }
     InternalScanner s = new RegionScanner(scan, additionalScanners);
     if (coprocessorHost != null) {
-      coprocessorHost.onScannerOpen(scan, s.hashCode());
+      coprocessorHost.postScannerOpen(scan, s.hashCode());
     }
     return s;
   }
@@ -2237,10 +2253,13 @@ public class HRegion implements HeapSize { // , Writable{
         ReadWriteConsistencyControl.setThreadReadPoint(this.readPt);
 
         results.clear();
+        if (coprocessorHost != null) {
+          results = coprocessorHost.preScannerNext(hashCode(), results);
+        }
         boolean returnResult = nextInternal(limit);
 
         if (coprocessorHost != null) {
-          results = coprocessorHost.onScannerNext(hashCode(), results);
+          results = coprocessorHost.postScannerNext(hashCode(), results);
         }
         outResults.addAll(results);
         resetFilters();
@@ -2349,13 +2368,16 @@ public class HRegion implements HeapSize { // , Writable{
 
     public synchronized void close() throws IOException {
       if (coprocessorHost != null) {
-        coprocessorHost.onScannerClose(hashCode());
+        coprocessorHost.preScannerClose(hashCode());
       }
       if (storeHeap != null) {
         storeHeap.close();
         storeHeap = null;
       }
       this.filterClosed = true;
+      if (coprocessorHost != null) {
+        coprocessorHost.postScannerClose(hashCode());
+      }
     }
   }
 
@@ -2903,7 +2925,7 @@ public class HRegion implements HeapSize { // , Writable{
 
     // pre-get CP hook
     if ((coprocessorHost != null) && withCoprocssor) {
-      results = coprocessorHost.preGet(get);
+      results = coprocessorHost.preGet(get, results);
     }
     InternalScanner scanner = null;
     try {

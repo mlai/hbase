@@ -30,8 +30,6 @@ import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MiniHBaseCluster;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.coprocessor.Coprocessor.Priority;
-import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.util.Base64;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
@@ -43,28 +41,26 @@ public class TestClassloading extends HBaseClusterTestCase {
   // org/apache/hadoop/hbase/coprocessor/TestClassloading_Main which
   // implements the Coprocessor interface
   final static String encJar =
-    "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
+    "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
-    "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
+    "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
-    "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
+    "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
-    "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";
+    "b2FkaW5nX01haW4uY2xhc3NQSwUGAAAAAAMAAwDqAAAAYgMAAAAA";
 
   final static String className = "TestClassloading_Main";
   final static String classFullName =

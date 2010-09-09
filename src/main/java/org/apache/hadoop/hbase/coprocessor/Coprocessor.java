@@ -49,7 +49,8 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
  * can piggyback or fail this process.
  * <p>
  * <ul>
- *   <li>onOpen: Called when the region is reported as online to the master.</li><p>
+ *   <li>preOpen, postOpen: Called before and the region is reported as online 
+ *   to the master.</li><p>
  * </ul>
  * <p>
  * </dd>
@@ -61,24 +62,30 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
  * split, etc.). Coprocessors can piggyback administrative actions via:
  * <p>
  * <ul>
- *   <li>onFlush: Called after the memstore is flushed into a new store file.</li><p>
- *   <li>onCompact: Called before and after compaction.</li><p>
- *   <li>onSplit: Called after the region is split but before the split is reported to the
- * master.</li><p>
+ *   <li>preFlush, postFlush: Called before and after the memstore is flushed 
+ *   into a new store file.</li><p>
+ *   <li>preCompact, postCompact: Called before and after compaction.</li><p>
+ *   <li>preSplit, postSplit: Called after the region is split.</li><p>
  * </ul>
  * <p>
  * If the coprocessor implements the <tt>RegionObserver</tt> interface it can observe
  * and mediate client actions on the region:
  * <p>
  * <ul>
- *   <li>onGet: Called when a client makes a Get request.</li><p>
- *   <li>onGetResult: Called when the region server is ready to return a Get result.</li><p>
- *   <li>onExists: Called when the client tests for existence using a Get.</li><p>
- *   <li>onPut: Called when the client stores a value.</li><p>
- *   <li>onDelete: Called when the client deletes a value.</li><p>
- *   <li>onScannerOpen: Called when the client opens a new scanner.</li><p>
- *   <li>onScannerNext: Called when the client asks for the next row on a scanner.</li><p>
- *   <li>onScannerClose: Called when the client closes a scanner.</li><p>
+ *   <li>preGet, postGet: Called before and after a client makes a Get 
+ *   request.</li><p>
+ *   <li>preExists, postExists: Called before and after the client tests 
+ *   for existence using a Get.</li><p>
+ *   <li>prePut and postPut: Called before and after the client stores a value.
+ *   </li><p>
+ *   <li>preDelete and postDelete: Called before and after the client 
+ *   deletes a value.</li><p>
+ *   <li>preScannerOpenm postScannerOpen: Called before and after the client 
+ *   opens a new scanner.</li><p>
+ *   <li>preScannerNext, postScannerNext: Called before and after the client 
+ *   asks for the next row on a scanner.</li><p>
+ *   <li>preScannerClose, postScannerClose: Called before and after the client 
+ *   closes a scanner.</li><p>
  * </ul>
  * <p>
  * If the coprocessor implements the <tt>CommandTarget</tt> interface it can
@@ -119,7 +126,8 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
  * an indication to this effect will be passed as an argument.
  * <p>
  * <ul>
- *   <li>onClose: Called when the region is reported as closed to the master.</li><p>
+ *   <li>preClose and post Close: Called before and after the region is 
+ *   reported as closed to the master.</li><p>
  * </ul>
  * <p>
  * </dd>
@@ -153,56 +161,96 @@ public interface Coprocessor {
     public int intValue() {
       return prio;
     }
-
   }
 
   // Interface
   /**
-   * Called when the region is reported as open to the master.
+   * Called before the region is reported as open to the master.
    * @param e the environment provided by the region server
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onOpen(final CoprocessorEnvironment e)
+  public void preOpen(final CoprocessorEnvironment e)
+  throws CoprocessorException;
+  
+  /**
+   * Called after the region is reported as open to the master.
+   * @param e the environment provided by the region server
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void postOpen(final CoprocessorEnvironment e)
   throws CoprocessorException;
 
+  /**
+   * Called before the memstore is flushed to disk.
+   * @param e the environment provided by the region server
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void preFlush(final CoprocessorEnvironment e)
+  throws CoprocessorException;
+  
   /**
    * Called after the memstore is flushed to disk.
    * @param e the environment provided by the region server
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onFlush(final CoprocessorEnvironment e)
+  public void postFlush(final CoprocessorEnvironment e)
   throws CoprocessorException;
 
   /**
-   * Called before and after compaction.
+   * Called before compaction.
    * @param e the environment provided by the region server
-   * @param complete false before compaction, true after
    * @param willSplit true if compaction will result in a split, false
    * otherwise
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onCompact(final CoprocessorEnvironment e, final boolean complete,
-    final boolean willSplit) throws CoprocessorException;
+  public void preCompact(final CoprocessorEnvironment e, 
+      final boolean willSplit) throws CoprocessorException;
 
   /**
-   * Called after the region is split but before the split is reported to the
-   * master.
+   * Called after compaction.
+   * @param e the environment provided by the region server
+   * @param willSplit true if compaction will result in a split, false
+   * otherwise
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void postCompact(final CoprocessorEnvironment e, 
+      final boolean willSplit) throws CoprocessorException;
+
+  /**
+   * Called before the region is split.
+   * @param e the environment provided by the region server
+   * (e.getRegion() returns the parent region)
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void preSplit(final CoprocessorEnvironment e)
+  throws CoprocessorException;
+
+  /**
+   * Called after the region is split.
    * @param e the environment provided by the region server
    * (e.getRegion() returns the parent region)
    * @param l the left daughter region
    * @param r the right daughter region
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r)
+  public void postSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r)
   throws CoprocessorException;
 
   /**
-   * Called when the region is reported as closed to the master.
+   * Called before the region is reported as closed to the master.
    * @param e the environment provided by the region server
    * @param abortRequested true if the region server is aborting
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void onClose(final CoprocessorEnvironment e, boolean abortRequested)
+  public void preClose(final CoprocessorEnvironment e, boolean abortRequested)
   throws CoprocessorException;
 
+  /**
+   * Called after the region is reported as closed to the master.
+   * @param e the environment provided by the region server
+   * @param abortRequested true if the region server is aborting
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void postClose(final CoprocessorEnvironment e, boolean abortRequested)
+  throws CoprocessorException;
 }

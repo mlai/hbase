@@ -56,41 +56,29 @@ public class TestRegionObserverInterface extends HBaseTestCase {
   static byte[] ROW1 = Bytes.toBytes("testrow1");
   static byte[] ROW2 = Bytes.toBytes("testrow2");
 
-  public static class SimpleRegionObserver implements Coprocessor, RegionObserver {
+  public static class SimpleRegionObserver extends BaseRegionObserver {
     boolean beforeDelete = true;
     boolean scannerOpened = false;
     boolean hadPreGet = false;
     boolean hadPostGet = false;
     boolean hadPrePut = false;
     boolean hadPostPut = false;
+    boolean hadPreDeleted = false;
+    boolean hadPostDeleted = false;
+    boolean hadPreGetClosestRowBefore = false; 
+    boolean hadPostGetClosestRowBefore = false;
 
-    public void onOpen(final CoprocessorEnvironment e) { }
-
-    public void onClose(final CoprocessorEnvironment e, final boolean abortRequested) { }
-
-    public void onCompact(final CoprocessorEnvironment e, final boolean complete,
-        final boolean willSplit) { }
-
-    public void onFlush(final CoprocessorEnvironment e) { }
-
-    public void onSplit(final CoprocessorEnvironment e, final HRegion l,
-        final HRegion r) { }
-
-    // RegionObserver
-
-    public boolean onExists(final CoprocessorEnvironment e, final Get get,
-        boolean exists) {
-      // not tested -- need to go through the RS to get here
-      return exists;
-    }
-
-    public List<KeyValue> preGet(CoprocessorEnvironment e, Get get) {
+    // Overriden RegionObserver methods
+    @Override
+    public List<KeyValue> preGet(CoprocessorEnvironment e, Get get, 
+        List<KeyValue> results) {
       // is there a way to test this hook?
       LOG.info("preGet: get=" + get);
       hadPreGet = true;
       return null;
     }
 
+    @Override
     public List<KeyValue> postGet(CoprocessorEnvironment e, Get get, List<KeyValue> results) {
       LOG.info("postGet: get=" + get);
       assertTrue(Bytes.equals(get.getRow(), ROW));
@@ -121,6 +109,7 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return results;
     }
 
+    @Override
     public Map<byte[], List<KeyValue>> prePut(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("onPut put=" + familyMap);
@@ -140,6 +129,7 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return familyMap;
     }
     
+    @Override
     public Map<byte[], List<KeyValue>> postPut(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("onPut put=" + familyMap);
@@ -159,46 +149,74 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       return familyMap;
     }
 
+    @Override
     public KeyValue prePut(CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
     
+    @Override
     public KeyValue postPut(CoprocessorEnvironment e, KeyValue kv) {
       return kv;
     }
 
+    @Override
     public Map<byte[], List<KeyValue>> preDelete(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("preDelete: delete=" + familyMap);
-      beforeDelete = true;
+      hadPreDeleted = true;
       return familyMap;
     }
+    
+    @Override
     public Map<byte[], List<KeyValue>> postDelete(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("postDelete: delete=" + familyMap);
       beforeDelete = false;
+      hadPostDeleted = true;
       return familyMap;
     }
-
-    public Result onGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
+    
+    @Override
+    public Result preGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
         final byte[] family, Result result) {
-      LOG.info("onGetClosestRowBefore: row=" + Bytes.toStringBinary(row) +
-        " family=" + Bytes.toStringBinary(family) +
-        " result=" + result);
+      hadPreGetClosestRowBefore = true;
       return result;
     }
-
-    public void onScannerOpen(CoprocessorEnvironment e, Scan scan, long scannerId) {
+    
+    @Override
+    public Result postGetClosestRowBefore(final CoprocessorEnvironment e, final byte[] row,
+        final byte[] family, Result result) {
+      hadPostGetClosestRowBefore = true;
+      return result;
+    }
+    @Override
+    public void preScannerOpen(CoprocessorEnvironment e, Scan scan) {
       // not tested -- need to go through the RS to get here
     }
-
-    public List<KeyValue> onScannerNext(final CoprocessorEnvironment e,
+    @Override
+    public void postScannerOpen(CoprocessorEnvironment e, Scan scan, long scannerId) {
+      // not tested -- need to go through the RS to get here
+    }
+    @Override
+    public List<KeyValue> preScannerNext(final CoprocessorEnvironment e,
         final long scannerId, List<KeyValue> results) {
       // not tested -- need to go through the RS to get here
       return results;
     }
-
-    public void onScannerClose(final CoprocessorEnvironment e, final long scannerId) {
+    @Override
+    public List<KeyValue> postScannerNext(final CoprocessorEnvironment e,
+        final long scannerId, List<KeyValue> results) {
+      // not tested -- need to go through the RS to get here
+      return results;
+    }
+    @Override
+    public void preScannerClose(final CoprocessorEnvironment e, 
+        final long scannerId) {
+      // not tested -- need to go through the RS to get here
+    }
+    @Override
+    public void postScannerClose(final CoprocessorEnvironment e, 
+        final long scannerId) {
       // not tested -- need to go through the RS to get here
     }
 
@@ -234,7 +252,7 @@ public class TestRegionObserverInterface extends HBaseTestCase {
     HRegion r = HRegion.createHRegion(info, path, conf);
     CoprocessorHost host = r.getCoprocessorHost();
     host.load(implClass, Priority.USER);
-    host.onOpen();
+    host.preOpen();
     return r;
   }
 

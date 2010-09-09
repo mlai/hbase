@@ -191,6 +191,11 @@ public class SplitTransaction {
     if (!this.parent.lock.writeLock().isHeldByCurrentThread()) {
       throw new SplitAndCloseWriteLockNotHeld();
     }
+    
+    // Coprocessor callback
+    if (this.parent.getCoprocessorHost() != null) {
+      this.parent.getCoprocessorHost().preSplit();
+    }
 
     // If true, no cluster to write meta edits into.
     boolean testing =
@@ -256,9 +261,8 @@ public class SplitTransaction {
 
     // Coprocessor callback
     if (this.parent.getCoprocessorHost() != null) {
-      this.parent.getCoprocessorHost().onSplit(a,b);
+      this.parent.getCoprocessorHost().postSplit(a,b);
     }
-
 
     // Leaving here, the splitdir with its dross will be in place but since the
     // split was successful, just leave it; it'll be cleaned when parent is

@@ -21,13 +21,11 @@
 package org.apache.hadoop.hbase.coprocessor;
 
 import java.io.IOException;
-import java.util.ArrayList;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HBaseTestCase;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
@@ -52,57 +50,76 @@ public class TestCoprocessorInterface extends HBaseTestCase {
   
   public static class CoprocessorImpl implements Coprocessor {
 
-    private boolean opened;
-    private boolean closed;
-    private boolean compacted;
-    private boolean flushed;
-    private boolean split;
+    private boolean preOpenCalled;
+    private boolean postOpenCalled;
+    private boolean preCloseCalled;
+    private boolean postCloseCalled;
+    private boolean preCompactCalled;
+    private boolean postCompactCalled;
+    private boolean preFlushCalled;
+    private boolean postFlushCalled;
+    private boolean preSplitCalled;
+    private boolean postSplitCalled;
 
-    public void onOpen(CoprocessorEnvironment e) {
-      LOG.info("onOpen");
-      opened = true;
+    @Override
+    public void preOpen(CoprocessorEnvironment e) {
+      preOpenCalled = true;
     }
-
-    public void onClose(CoprocessorEnvironment e, boolean abortRequested) {
-      LOG.info("onClose abortRequested=" + abortRequested);
-      closed = true;
+    @Override
+    public void postOpen(CoprocessorEnvironment e) {
+      postOpenCalled = true;
     }
-
-    public void onCompact(CoprocessorEnvironment e, boolean complete, boolean willSplit) {
-      LOG.info("onCompact: complete=" + complete + " willSplit=" + willSplit);
-      compacted = true;
+    @Override
+    public void preClose(CoprocessorEnvironment e, boolean abortRequested) {
+      preCloseCalled = true;
     }
-
-    public void onFlush(CoprocessorEnvironment e) {
-      LOG.info("onFlush");
-      flushed = true;
+    @Override
+    public void postClose(CoprocessorEnvironment e, boolean abortRequested) {
+      postCloseCalled = true;
     }
-
-    public void onSplit(CoprocessorEnvironment e, HRegion l, HRegion r) {
-      LOG.info("onSplit: this=" + e.getRegion().getRegionNameAsString() +
-        " l=" + l.getRegionNameAsString() +
-        " r=" + r.getRegionNameAsString());
-      split = true;
+    @Override
+    public void preCompact(CoprocessorEnvironment e, boolean willSplit) {
+      preCompactCalled = true;
+    }
+    @Override
+    public void postCompact(CoprocessorEnvironment e, boolean willSplit) {
+      postCompactCalled = true;
+    }
+    @Override
+    public void preFlush(CoprocessorEnvironment e) {
+      preFlushCalled = true;
+    }
+    @Override
+    public void postFlush(CoprocessorEnvironment e) {
+      postFlushCalled = true;
+    }
+    @Override
+    public void preSplit(CoprocessorEnvironment e) {
+      preSplitCalled = true;
+    }
+    @Override
+    public void postSplit(CoprocessorEnvironment e, HRegion l, HRegion r) {
+      postSplitCalled = true;
     }
 
     boolean wasOpened() {
-      return opened;
+      return (preOpenCalled && postOpenCalled);
     }
 
     boolean wasClosed() {
-      return closed;
+      return (preCloseCalled && postCloseCalled);
     }
 
     boolean wasFlushed() {
-      return flushed;
+      return (preFlushCalled && postFlushCalled);
     }
 
     boolean wasCompacted() {
-      return compacted;
+      return (preCompactCalled && postCompactCalled);
     }
 
     boolean wasSplit() {
-      return split;
+      return (preSplitCalled && postSplitCalled);
     }
   }
 
@@ -152,7 +169,14 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     r.initialize();
     CoprocessorHost host = r.getCoprocessorHost();
     host.load(implClass, Priority.USER);
-    host.onOpen();
+    // we need to manually call pre- and postOpen here since the 
+    // above load() is not the real case for CP loading. A CP is
+    // expected to be loaded by default from 1) configuration; or 2)
+    // HTableDescriptor. If it's loaded after HRegion initialized, 
+    // the pre- and postOpen() won't be triggered automatically. 
+    // Here we have to call pre and postOpen explicitly.
+    host.preOpen();
+    host.postOpen();
     return r;
   }
 
@@ -168,7 +192,10 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     HRegion r = HRegion.createHRegion(info, path, conf);
     CoprocessorHost host = r.getCoprocessorHost();
     host.load(implClass, Priority.USER);
-    host.onOpen();
+    
+    // Here we have to call pre and postOpen explicitly.
+    host.preOpen();
+    host.postOpen();
     return r;
   }
 
