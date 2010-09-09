@@ -228,6 +228,20 @@ public interface HConnection {
   throws IOException;
 
   /**
+   *
+   * @param list
+   * @param tableName
+   * @param pool
+   * @param callback
+   * @return
+   * @throws IOException
+   */
+  public <R> R[] processBatchCallback(List<? extends Row> list,
+      byte[] tableName,
+      ExecutorService pool,
+      HTable.BatchCallback<R> callback) throws IOException;
+
+  /**
    * Process a batch of Puts. Does the retries.
    * @param list A batch of Puts to process.
    * @param tableName The name of the table
@@ -287,9 +301,4 @@ public interface HConnection {
    */
   public void prewarmRegionCache(final byte[] tableName,
       final Map<HRegionInfo, HServerAddress> regions);
-
-
-  /**
-   *
-   */
 }

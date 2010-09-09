@@ -19,6 +19,9 @@
  */
 package org.apache.hadoop.hbase.client;
 
+import com.google.common.base.Function;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -34,6 +37,7 @@ import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
@@ -1256,37 +1260,168 @@ public class HTable implements HTableInterface {
   /**
    * Creates and returns a proxy instance to the HRegionServer hosting the
    * region containing the specified row.  The row given does not actually have
-   * to exist.  Whichever region the row would fall into will be used.
+   * to exist.  Whichever region the row would fall into will be used.  Note
+   * that the {@code Row} parameter is also not passed to the coprocessor
+   * handler registered for this protocol, unless the {@code Row} is separately
+   * passed as an argument in the proxy method call.  The parameter here is
+   * just used to locate the region used to handle the call.
    *
    * @param protocol The class or interface defining the remote protocol
    * @param row The row used to identify the remote region location
    * @return
    */
-  public <T extends VersionedProtocol> T proxy(Class<T> protocol, Row row) {
+  public <T extends CoprocessorProtocol> T proxy(Class<T> protocol, Row row) {
     return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
         new Class[]{protocol},
-        new ProxyRPCInvoker(configuration, protocol, tableName, row));
+        new ProxyRPCInvoker(configuration,
+            connection,
+            protocol,
+            tableName,
+            row,
+            pool,
+            null));
   }
 
-  public <T extends VersionedProtocol, R> Map<Row,R> exec(
-      Class<T> protocol, List<? extends Row> rows, BatchCall<T,R> callable) {
-    Map<Row,R> results = new HashMap<Row,R>();
-    for (Row r : rows) {
-      T proxy = (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
-          new Class[]{protocol},
-          new ProxyRPCInvoker(configuration, protocol, tableName, r));
-      results.put(r, callable.call(proxy));
-    }
+  /**
+   * Invokes the passed {@link BatchCall} across the regions containing
+   * the passed {@link Row} keys, and returns the call results keyed by
+   * region name.
+   *
+   * @param protocol
+   * @param rows
+   * @param callable
+   * @param <T>
+   * @param <R>
+   * @return
+   */
+  public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
+      Class<T> protocol, List<? extends Row> rows, BatchCall<T,R> callable)
+      throws IOException {
 
+    final Map<byte[],R> results = new TreeMap<byte[],R>(Bytes.BYTES_COMPARATOR);
+    exec(protocol, rows, callable, new BatchCallback<R>(){
+      public void update(byte[] region, byte[] row, R value) {
+        results.put(region, value);
+      }
+    });
     return results;
   }
 
-  public <T extends VersionedProtocol, R> Map<Row,R> exec(
-      Class<T> protocol, RowRange range, BatchCall<T,R> callable) {
-    return null;
+  /**
+   * Invokes the passed {@link BatchCall} across the regions containing the
+   * passed {@link Row} keys, and invokes the
+   * {@link BatchCallback#update(byte[], byte[], Object)} method for each result.
+   * 
+   * @param protocol
+   * @param rows
+   * @param callable
+   * @param callback
+   * @param <T> CoprocessorProtocol subclass for the remote invocation
+   * @param <R> Return type for the {@link BatchCall#call(Object)} method
+   */
+  public <T extends CoprocessorProtocol, R> void exec(
+      Class<T> protocol, List<? extends Row> rows,
+      BatchCall<T,R> callable, BatchCallback<R> callback)
+      throws IOException {
+    T instance = (T)Proxy.newProxyInstance(configuration.getClassLoader(),
+        new Class[]{protocol},
+        new ProxyRPCInvoker(configuration,
+            connection,
+            protocol,
+            tableName,
+            rows,
+            pool,
+            callback));
+    callable.call(instance);
+  }
+
+  /**
+   * Invoke the passed {@link BatchCall} for each region encompassed in the
+   * passed {@link RowRange}.  Returns a single result per region, keyed by
+   * region name.
+   *
+   * @param protocol the CoprocessorProtocol implementation to call
+   * @param range indicates the range of regions where the call is invoked
+   * @param callable performs the CoprocessorProtocol invocation
+   * @param <T> CoprocessorProtocol subclass for the remote invocation
+   * @param <R> Return type for the {@link BatchCall#call(Object)} method
+   * @return
+   */
+  public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
+      Class<T> protocol, RowRange range, BatchCall<T,R> callable)
+      throws IOException {
+
+    final Map<byte[],R> results = new TreeMap<byte[],R>(Bytes.BYTES_COMPARATOR);
+    exec(protocol, range, callable, new BatchCallback<R>(){
+      public void update(byte[] region, byte[] row, R value) {
+        results.put(region, value);
+      }
+    });
+    return results;
+  }
+
+  /**
+   *
+   * @param protocol
+   * @param range
+   * @param callable
+   * @param callback
+   * @param <T> CoprocessorProtocol subclass for the remote invocation
+   * @param <R> Return type for the {@link BatchCall#call(Object)} method
+   */
+  public <T extends CoprocessorProtocol, R> void exec(
+      Class<T> protocol, RowRange range,
+      BatchCall<T,R> callable, BatchCallback<R> callback)
+      throws IOException {
+
+    // get regions covered by the row range
+    List<byte[]> keys = getRowKeysInRange(range);
+    List<Get> rows = Lists.transform(keys,
+        new Function<byte[],Get>() {
+          public Get apply(byte[] row) {
+            return new Get(row);
+          }
+        });
+    // call callable for all regions
+    T instance = (T)Proxy.newProxyInstance(configuration.getClassLoader(),
+        new Class[]{protocol},
+        new ProxyRPCInvoker(configuration,
+            connection,
+            protocol,
+            tableName,
+            rows,
+            pool,
+            callback));
+    callable.call(instance);
+  }
+
+  private List<byte[]> getRowKeysInRange(RowRange range) throws IOException {
+    Pair<byte[][],byte[][]> startEndKeys = getStartEndKeys();
+    byte[][] startKeys = startEndKeys.getFirst();
+    byte[][] endKeys = startEndKeys.getSecond();
+
+    List<byte[]> rangeKeys = new ArrayList<byte[]>();
+    for (int i=0; i<startKeys.length; i++) {
+      if (Bytes.compareTo(range.getStartRow(), startKeys[i]) >= 0 ) {
+        if (Bytes.equals(endKeys[i], HConstants.EMPTY_END_ROW) ||
+            Bytes.compareTo(range.getStartRow(), endKeys[i]) < 0) {
+          rangeKeys.add(range.getStartRow());
+        }
+      } else if (Bytes.equals(range.getStopRow(), HConstants.EMPTY_END_ROW) ||
+          Bytes.compareTo(startKeys[i], range.getStopRow()) <= 0) {
+        rangeKeys.add(startKeys[i]);
+      } else {
+        break; // past stop
+      }
+    }
+
+    return rangeKeys;
   }
 
   public static interface BatchCall<T,R> {
-    public R call(T instance);
+    public R call(T instance) throws IOException;
+  }
+  public static interface BatchCallback<R> {
+    public void update(byte[] region, byte[] row, R result);
   }
 }

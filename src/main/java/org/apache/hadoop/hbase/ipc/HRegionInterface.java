@@ -274,7 +274,7 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    * @return MultiResult
    * @throws IOException
    */
-  public MultiResponse multi(MultiAction multi) throws IOException;
+  public <R> MultiResponse<R> multi(MultiAction<R> multi) throws IOException;
 
   /**
    * Multi put for putting multiple regions worth of puts at once.

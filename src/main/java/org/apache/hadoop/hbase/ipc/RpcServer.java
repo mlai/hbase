@@ -36,7 +36,4 @@ public interface RpcServer {
   int getCallQueueLen();
 
   void setErrorHandler(HBaseRPCErrorHandler handler);
-
-  <T extends VersionedProtocol> boolean registerProtocol(Class<T> protocol,
-      T handler);
 }

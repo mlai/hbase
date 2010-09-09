@@ -25,6 +25,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -42,13 +44,14 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.google.common.collect.ClassToInstanceMap;
+import com.google.common.collect.MapMaker;
+import com.google.common.collect.MutableClassToInstanceMap;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.Options;
@@ -81,28 +84,11 @@ import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.RootLocationEditor;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Action;
-import org.apache.hadoop.hbase.client.MultiAction;
-import org.apache.hadoop.hbase.client.MultiResponse;
-import org.apache.hadoop.hbase.client.Row;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.MultiPut;
-import org.apache.hadoop.hbase.client.MultiPutResponse;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.Scan;
-import org.apache.hadoop.hbase.client.ServerConnection;
-import org.apache.hadoop.hbase.client.ServerConnectionManager;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.executor.ExecutorService.ExecutorType;
 import org.apache.hadoop.hbase.io.hfile.LruBlockCache;
-import org.apache.hadoop.hbase.ipc.HBaseRPC;
-import org.apache.hadoop.hbase.ipc.HBaseRPCErrorHandler;
-import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
-import org.apache.hadoop.hbase.ipc.HMasterRegionInterface;
-import org.apache.hadoop.hbase.ipc.HRegionInterface;
-import org.apache.hadoop.hbase.ipc.RpcServer;
+import org.apache.hadoop.hbase.ipc.*;
 import org.apache.hadoop.hbase.regionserver.Leases.LeaseStillHeldException;
 import org.apache.hadoop.hbase.regionserver.handler.CloseMetaHandler;
 import org.apache.hadoop.hbase.regionserver.handler.CloseRegionHandler;
@@ -262,6 +248,11 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
 
   // Replication services. If no replication, this handler will be null.
   private Replication replicationHandler;
+
+  // Registered region protocol handlers
+  private ConcurrentMap<byte[], ClassToInstanceMap<CoprocessorProtocol>>
+      regionProtocols = new ConcurrentSkipListMap<byte[], ClassToInstanceMap<CoprocessorProtocol>>(Bytes.BYTES_COMPARATOR);
+
 
   /**
    * Starts a HRegionServer at the default location
@@ -2209,11 +2200,11 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   }
 
   @Override
-  public MultiResponse multi(MultiAction multi) throws IOException {
+  public <R> MultiResponse<R> multi(MultiAction<R> multi) throws IOException {
     MultiResponse response = new MultiResponse();
-    for (Map.Entry<byte[], List<Action>> e : multi.actions.entrySet()) {
+    for (Map.Entry<byte[], List<Action<R>>> e : multi.actions.entrySet()) {
       byte[] regionName = e.getKey();
-      List<Action> actionsForRegion = e.getValue();
+      List<Action<R>> actionsForRegion = e.getValue();
       // sort based on the row id - this helps in the case where we reach the
       // end of a region, so that we don't have to try the rest of the 
       // actions in the list.
@@ -2233,25 +2224,29 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
             put(regionName, (Put) action);
             response.add(regionName, new Pair<Integer, Result>(
                 a.getOriginalIndex(), new Result()));
+          } else if (action instanceof Exec) {
+            response.add(regionName, new Pair<Integer, Object>(
+                a.getOriginalIndex(), regionExec(regionName, (Exec)action)
+            ));
           } else {
-            LOG.debug("Error: invalid Action, row must be a Get, Delete or Put.");
-            throw new IllegalArgumentException("Invalid Action, row must be a Get, Delete or Put.");
+            LOG.debug("Error: invalid Action, row must be a Get, Delete, Put or Exec.");
+            throw new IllegalArgumentException("Invalid Action, row must be a Get, Delete, Put or Exec.");
           }
         }
       } catch (IOException ioe) {
-          if (multi.size() == 1) {
-            throw ioe;
-          } else {
-            LOG.error("Exception found while attempting " + action.toString()
-                + " " + StringUtils.stringifyException(ioe));
-            response.add(regionName,null);
-            // stop processing on this region, continue to the next.
-          }
+        if (multi.size() == 1) {
+          throw ioe;
+        } else {
+          LOG.error("Exception found while attempting " + action.toString()
+              + " " + StringUtils.stringifyException(ioe));
+          response.add(regionName,null);
+          // stop processing on this region, continue to the next.
         }
       }
-      
-      return response;
     }
+
+    return response;
+  }
   
   /**
    * @deprecated Use HRegionServer.multi( MultiAction action) instead
@@ -2269,6 +2264,46 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     }
 
     return resp;
+  }
+
+  public Object regionExec(byte[] regionName, Exec call)
+      throws IOException {
+
+    Class<? extends CoprocessorProtocol> protocol = call.getProtocol();
+    ClassToInstanceMap<CoprocessorProtocol> regionHandlers =
+        regionProtocols.get(regionName);
+    if (regionHandlers == null || !regionHandlers.containsKey(protocol)) {
+      throw new IOException("No matching handler for protocol "+
+          protocol.getName()+" in region "+Bytes.toStringBinary(regionName));
+    }
+
+    CoprocessorProtocol handler = regionHandlers.getInstance(protocol);
+    Object value = null;
+
+    try {
+      Method method = protocol.getMethod(
+          call.getMethodName(), call.getParameterTypes());
+      method.setAccessible(true);
+
+      value = method.invoke(handler, call.getParameters());
+    } catch (InvocationTargetException e) {
+      Throwable target = e.getTargetException();
+      if (target instanceof IOException) {
+        throw (IOException)target;
+      }
+      IOException ioe = new IOException(target.toString());
+      ioe.setStackTrace(target.getStackTrace());
+      throw ioe;
+    } catch (Throwable e) {
+      if (!(e instanceof IOException)) {
+        LOG.error("Unexpected throwable object ", e);
+      }
+      IOException ioe = new IOException(e.toString());
+      ioe.setStackTrace(e.getStackTrace());
+      throw ioe;
+    }
+
+    return value;
   }
 
   public String toString() {
@@ -2369,6 +2404,33 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   throws IOException {
     if (this.replicationHandler == null) return;
     this.replicationHandler.replicateLogEntries(entries);
+  }
+
+  public <T extends CoprocessorProtocol> boolean registerProtocol(
+      byte[] region, Class<T> protocol, T handler) {
+    this.regionProtocols.putIfAbsent(region, MutableClassToInstanceMap.create(
+        new ConcurrentHashMap<Class<? extends CoprocessorProtocol>,CoprocessorProtocol>()
+    ));
+    ClassToInstanceMap<CoprocessorProtocol> handlers =
+        this.regionProtocols.get(region);
+
+    /* No stacking of protocol handlers is currently allowed.  The
+     * first to claim wins!
+     */
+    if (handlers.containsKey(protocol)) {
+      LOG.error("Protocol "+protocol.getName()+
+          " already registered, rejecting request from "+
+          handler
+      );
+      return false;
+    }
+
+    handlers.putInstance(protocol, handler);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Registered protocol handler: region="+
+          Bytes.toStringBinary(region)+" protocol="+protocol.getName());
+    }
+    return true;
   }
 
   /**

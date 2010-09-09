@@ -30,15 +30,21 @@ import java.net.SocketTimeoutException;
 import java.io.*;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import javax.net.SocketFactory;
 import javax.security.auth.Subject;
 import javax.security.auth.login.LoginException;
 
+import com.google.common.collect.ClassToInstanceMap;
+import com.google.common.collect.MapMaker;
 import com.google.common.collect.Maps;
+import com.google.common.collect.MutableClassToInstanceMap;
 import org.apache.commons.logging.*;
 
 import org.apache.hadoop.hbase.io.HbaseObjectWritable;
+import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.io.*;
 import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.net.NetUtils;
@@ -310,7 +316,6 @@ class WritableRpcEngine implements RpcEngine {
     private Class<?> implementation;
     private boolean verbose;
     private boolean authorize = false;
-    private Map<Class,Object> implementations = Maps.newHashMap();
 
     /** Construct an RPC server.
      * @param instance the instance whose methods will be called
@@ -346,7 +351,6 @@ class WritableRpcEngine implements RpcEngine {
       super(bindAddress, port, Invocation.class, numHandlers, conf, classNameBase(instance.getClass().getName()));
       this.instance = instance;
       this.implementation = instance.getClass();
-      this.implementations.put(instance.getClass(), instance);
       this.verbose = verbose;
       this.authorize = 
         conf.getBoolean(ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG, 
@@ -369,9 +373,13 @@ class WritableRpcEngine implements RpcEngine {
                                    call.getParameterClasses());
         method.setAccessible(true);
 
-        Object impl = this.instance;
-        if (this.implementations.containsKey(protocol)) {
-          impl = this.implementations.get(protocol);
+        Object impl = null;
+        if (protocol.isAssignableFrom(this.implementation)) {
+          impl = this.instance;
+        }
+        else {
+          throw new IOException("No matching implementation for protocol "+
+              protocol.getName());
         }
 
         long startTime = System.currentTimeMillis();
@@ -407,40 +415,6 @@ class WritableRpcEngine implements RpcEngine {
         throw ioe;
       }
     }
-
-    public <T extends VersionedProtocol> boolean registerProtocol(
-        Class<T> protocol, T handler) {
-      /* we need to prevent lower priority handlers (like coprocessors)
-       * from hijacking protocols already claimed by higher priority handlers
-       */
-      if (this.implementations.containsKey(protocol)) {
-        LOG.error("Protocol "+protocol.getName()+
-            " already registered, rejecting request from "+
-            handler
-        );
-        return false;
-      }
-
-      this.implementations.put(protocol, handler);
-      return true;
-    }
-
-    /*
-    @Override
-    public void authorize(Subject user, ConnectionHeader connection) 
-    throws AuthorizationException {
-      if (authorize) {
-        Class<? extends VersionedProtocol> protocol = null;
-        try {
-          protocol = getProtocolClass(connection.getProtocol(), getConf());
-        } catch (ClassNotFoundException cfne) {
-          throw new AuthorizationException("Unknown protocol: " + 
-                                           connection.getProtocol());
-        }
-        ServiceAuthorizationManager.authorize(user, protocol);
-      }
-    }
-    */
   }
 
   protected static void log(String value) {
