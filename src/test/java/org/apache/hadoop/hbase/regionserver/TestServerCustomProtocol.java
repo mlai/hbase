@@ -219,14 +219,37 @@ public class TestServerCustomProtocol {
         results.get(loc.getRegionInfo().getRegionName()));
   }
 
+  @Test
+  public void testCompountCall() throws Exception {
+    HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
+
+    List<? extends Row> rows = Lists.newArrayList(
+        new Get(ROW_A), new Get(ROW_B), new Get(ROW_C));
+    Map<byte[],String> results = table.exec(PingProtocol.class, rows,
+        new HTable.BatchCall<PingProtocol,String>() {
+          public String call(PingProtocol instance) {
+            return instance.hello(instance.ping());
+          }
+        });
+
+    verifyRegionResults(table, results, "Hello, pong", ROW_A);
+    verifyRegionResults(table, results, "Hello, pong", ROW_B);
+    verifyRegionResults(table, results, "Hello, pong", ROW_C);
+  }
+
   private void verifyRegionResults(HTable table,
       Map<byte[],String> results, byte[] row) throws Exception {
+    verifyRegionResults(table, results, "pong", row);
+  }
+
+  private void verifyRegionResults(HTable table,
+      Map<byte[],String> results, String expected, byte[] row) throws Exception {
     HRegionLocation loc = table.getRegionLocation(row);
     byte[] region = loc.getRegionInfo().getRegionName();
     assertNotNull("Results should contain region " +
         Bytes.toStringBinary(region)+" for row '"+Bytes.toStringBinary(row)+"'",
         results.get(region));
     assertEquals("Invalid result for row '"+Bytes.toStringBinary(row)+"'",
-        "pong", results.get(region));
+        expected, results.get(region));
   }
 }

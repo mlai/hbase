@@ -38,6 +38,7 @@ import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.ExecRPCInvoker;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.Writables;
@@ -1295,13 +1296,11 @@ public class HTable implements HTableInterface {
   public <T extends CoprocessorProtocol> T proxy(Class<T> protocol, Row row) {
     return (T)Proxy.newProxyInstance(this.getClass().getClassLoader(),
         new Class[]{protocol},
-        new ProxyRPCInvoker(configuration,
+        new ExecRPCInvoker(configuration,
             connection,
             protocol,
             tableName,
-            row,
-            pool,
-            null));
+            row));
   }
 
   /**
@@ -1309,12 +1308,12 @@ public class HTable implements HTableInterface {
    * the passed {@link Row} keys, and returns the call results keyed by
    * region name.
    *
-   * @param protocol
-   * @param rows
-   * @param callable
-   * @param <T>
-   * @param <R>
-   * @return
+   * @param protocol The class or interface defining the remote protocol
+   * @param rows The rows used to identify the remote region locations
+   * @param callable performs the CoprocessorProtocol invocation
+   * @param <T> CoprocessorProtocol subclass for the remote invocation
+   * @param <R> Return type for the {@link BatchCall#call(Object)} method
+   * @return a Map of return values keyed by region name
    */
   public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
       Class<T> protocol, List<? extends Row> rows, BatchCall<T,R> callable)
@@ -1334,10 +1333,10 @@ public class HTable implements HTableInterface {
    * passed {@link Row} keys, and invokes the
    * {@link BatchCallback#update(byte[], byte[], Object)} method for each result.
    * 
-   * @param protocol
-   * @param rows
-   * @param callable
-   * @param callback
+   * @param protocol The class or interface defining the remote protocol
+   * @param rows The rows used to identify the remote region locations
+   * @param callable performs the CoprocessorProtocol invocation
+   * @param callback an instance upon which {@link BatchCallback#update(byte[], byte[], Object)} will be invoked for each region result
    * @param <T> CoprocessorProtocol subclass for the remote invocation
    * @param <R> Return type for the {@link BatchCall#call(Object)} method
    */
@@ -1345,6 +1344,8 @@ public class HTable implements HTableInterface {
       Class<T> protocol, List<? extends Row> rows,
       BatchCall<T,R> callable, BatchCallback<R> callback)
       throws IOException {
+    connection.processExecs(protocol, rows, tableName, pool, callable, callback);
+    /*
     T instance = (T)Proxy.newProxyInstance(configuration.getClassLoader(),
         new Class[]{protocol},
         new ProxyRPCInvoker(configuration,
@@ -1355,6 +1356,7 @@ public class HTable implements HTableInterface {
             pool,
             callback));
     callable.call(instance);
+    */
   }
 
   /**
@@ -1367,7 +1369,7 @@ public class HTable implements HTableInterface {
    * @param callable performs the CoprocessorProtocol invocation
    * @param <T> CoprocessorProtocol subclass for the remote invocation
    * @param <R> Return type for the {@link BatchCall#call(Object)} method
-   * @return
+   * @return a Map of return values keyed by region name
    */
   public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
       Class<T> protocol, RowRange range, BatchCall<T,R> callable)
@@ -1384,10 +1386,10 @@ public class HTable implements HTableInterface {
 
   /**
    *
-   * @param protocol
-   * @param range
-   * @param callable
-   * @param callback
+   * @param protocol the CoprocessorProtocol implementation to call
+   * @param range identifies the start and stop rows encompassing the regions where the protocol call is invoked
+   * @param callable performs the CoprocessorProtocol invocation
+   * @param callback an instance upon which {@link BatchCallback#update(byte[], byte[], Object)} will be invoked for each region result
    * @param <T> CoprocessorProtocol subclass for the remote invocation
    * @param <R> Return type for the {@link BatchCall#call(Object)} method
    */
@@ -1404,7 +1406,9 @@ public class HTable implements HTableInterface {
             return new Get(row);
           }
         });
+    connection.processExecs(protocol, rows, tableName, pool, callable, callback);
     // call callable for all regions
+    /*
     T instance = (T)Proxy.newProxyInstance(configuration.getClassLoader(),
         new Class[]{protocol},
         new ProxyRPCInvoker(configuration,
@@ -1415,6 +1419,7 @@ public class HTable implements HTableInterface {
             pool,
             callback));
     callable.call(instance);
+    */
   }
 
   private List<byte[]> getRowKeysInRange(RowRange range) throws IOException {

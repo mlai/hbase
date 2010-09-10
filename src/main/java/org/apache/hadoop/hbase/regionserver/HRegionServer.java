@@ -2226,8 +2226,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
             response.add(regionName, new Pair<Integer, Result>(
                 a.getOriginalIndex(), new Result()));
           } else if (action instanceof Exec) {
+            ExecResult result = regionExec(regionName, (Exec)action);
             response.add(regionName, new Pair<Integer, Object>(
-                a.getOriginalIndex(), regionExec(regionName, (Exec)action)
+                a.getOriginalIndex(), result.getValue()
             ));
           } else {
             LOG.debug("Error: invalid Action, row must be a Get, Delete, Put or Exec.");
@@ -2267,7 +2268,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     return resp;
   }
 
-  public Object regionExec(byte[] regionName, Exec call)
+  public ExecResult regionExec(byte[] regionName, Exec call)
       throws IOException {
 
     Class<? extends CoprocessorProtocol> protocol = call.getProtocol();
@@ -2304,7 +2305,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       throw ioe;
     }
 
-    return value;
+    return new ExecResult(regionName, value);
   }
 
   public String toString() {

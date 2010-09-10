@@ -31,6 +31,7 @@ import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MasterNotRunningException;
 import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.ipc.HMasterInterface;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
@@ -241,6 +242,13 @@ public interface HConnection {
       ExecutorService pool,
       HTable.BatchCallback<R> callback) throws IOException;
 
+  public <T extends CoprocessorProtocol,R> void processExecs(
+      final Class<T> protocol,
+      List<? extends Row> list,
+      final byte[] tableName,
+      ExecutorService pool,
+      final HTable.BatchCall<T,R> call,
+      final HTable.BatchCallback<R> callback) throws IOException;
   /**
    * Process a batch of Puts. Does the retries.
    * @param list A batch of Puts to process.
