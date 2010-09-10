@@ -21,8 +21,6 @@ package org.apache.hadoop.hbase.master;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.lang.management.RuntimeMXBean;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.net.UnknownHostException;
@@ -31,13 +29,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.util.ToolRunner;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.HBaseConfiguration;
@@ -62,10 +57,10 @@ import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.MetaReader;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HConnection;
+import org.apache.hadoop.hbase.client.HConnectionManager;
 import org.apache.hadoop.hbase.client.MetaScanner;
 import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.ServerConnection;
-import org.apache.hadoop.hbase.client.ServerConnectionManager;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
 import org.apache.hadoop.hbase.executor.ExecutorService;
 import org.apache.hadoop.hbase.executor.ExecutorService.ExecutorType;
@@ -147,7 +142,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   // file system manager for the master FS operations
   private final MasterFileSystem fileSystemManager;
 
-  private final ServerConnection connection;
+  private final HConnection connection;
+
   // server manager to deal with region server info
   private final ServerManager serverManager;
 
@@ -244,7 +240,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
      */
     // TODO: Do this using Dependency Injection, using PicoContainer or Spring.
     this.fileSystemManager = new MasterFileSystem(this);
-    this.connection = ServerConnectionManager.getConnection(conf);
+    this.connection = HConnectionManager.getConnection(conf);
     this.executorService = new ExecutorService(getServerName());
 
     this.serverManager = new ServerManager(this, this);
@@ -267,7 +263,8 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     this.clusterStatusTracker.start();
 
     LOG.info("Server active/primary master; " + this.address +
-      "; clusterStarter=" + this.clusterStarter);
+      "; clusterStarter=" + this.clusterStarter + ", sessionid=0x" +
+      Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
   }
 
   /**
@@ -321,8 +318,9 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     this.rpcServer.stop();
     if (this.balancerChore != null) this.balancerChore.interrupt();
     this.activeMasterManager.stop();
-    this.zooKeeper.close();
     this.executorService.shutdown();
+    HConnectionManager.deleteConnection(this.conf, true);
+    this.zooKeeper.close();
     LOG.info("HMaster main thread exiting");
   }
 
@@ -773,15 +771,6 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     return status;
   }
 
-  private static void printUsageAndExit() {
-    System.err.println("Usage: Master [opts] start|stop");
-    System.err.println(" start  Start Master. If local mode, start Master and RegionServer in same JVM");
-    System.err.println(" stop   Start cluster shutdown; Master signals RegionServer shutdown");
-    System.err.println(" where [opts] are:");
-    System.err.println("   --minServers=<servers>    Minimum RegionServers needed to host user tables.");
-    System.exit(0);
-  }
-
   @Override
   public void abort(final String msg, final Throwable t) {
     if (t != null) LOG.fatal(msg, t);
@@ -864,143 +853,16 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     }
   }
 
-  /*
-   * Version of master that will shutdown the passed zk cluster on its way out.
-   */
-  static class LocalHMaster extends HMaster {
-    private MiniZooKeeperCluster zkcluster = null;
-
-    public LocalHMaster(Configuration conf)
-    throws IOException, KeeperException, InterruptedException {
-      super(conf);
-    }
-
-    @Override
-    public void run() {
-      super.run();
-      if (this.zkcluster != null) {
-        try {
-          this.zkcluster.shutdown();
-        } catch (IOException e) {
-          e.printStackTrace();
-        }
-      }
-    }
-
-    void setZKCluster(final MiniZooKeeperCluster zkcluster) {
-      this.zkcluster = zkcluster;
-    }
-  }
-
   protected static void doMain(String [] args,
-      Class<? extends HMaster> masterClass) {
-    Configuration conf = HBaseConfiguration.create();
-
-    Options opt = new Options();
-    opt.addOption("minServers", true, "Minimum RegionServers needed to host user tables");
-    opt.addOption("D", true, "Override HBase Configuration Settings");
-    opt.addOption("backup", false, "Do not try to become HMaster until the primary fails");
-    try {
-      CommandLine cmd = new GnuParser().parse(opt, args);
-
-      if (cmd.hasOption("minServers")) {
-        String val = cmd.getOptionValue("minServers");
-        conf.setInt("hbase.regions.server.count.min",
-            Integer.valueOf(val));
-        LOG.debug("minServers set to " + val);
-      }
-
-      if (cmd.hasOption("D")) {
-        for (String confOpt : cmd.getOptionValues("D")) {
-          String[] kv = confOpt.split("=", 2);
-          if (kv.length == 2) {
-            conf.set(kv[0], kv[1]);
-            LOG.debug("-D configuration override: " + kv[0] + "=" + kv[1]);
-          } else {
-            throw new ParseException("-D option format invalid: " + confOpt);
-          }
-        }
-      }
-      
-      // check if we are the backup master - override the conf if so
-      if (cmd.hasOption("backup")) {
-        conf.setBoolean(HConstants.MASTER_TYPE_BACKUP, true);
-      }
-
-      if (cmd.getArgList().contains("start")) {
-        try {
-          // Print out vm stats before starting up.
-          RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
-          if (runtime != null) {
-            LOG.info("vmName=" + runtime.getVmName() + ", vmVendor=" +
-              runtime.getVmVendor() + ", vmVersion=" + runtime.getVmVersion());
-            LOG.info("vmInputArguments=" + runtime.getInputArguments());
-          }
-          // If 'local', defer to LocalHBaseCluster instance.  Starts master
-          // and regionserver both in the one JVM.
-          if (LocalHBaseCluster.isLocal(conf)) {
-            final MiniZooKeeperCluster zooKeeperCluster =
-              new MiniZooKeeperCluster();
-            File zkDataPath = new File(conf.get("hbase.zookeeper.property.dataDir"));
-            int zkClientPort = conf.getInt("hbase.zookeeper.property.clientPort", 0);
-            if (zkClientPort == 0) {
-              throw new IOException("No config value for hbase.zookeeper.property.clientPort");
-            }
-            zooKeeperCluster.setTickTime(conf.getInt("hbase.zookeeper.property.tickTime", 3000));
-            zooKeeperCluster.setClientPort(zkClientPort);
-            int clientPort = zooKeeperCluster.startup(zkDataPath);
-            if (clientPort != zkClientPort) {
-              String errorMsg = "Couldnt start ZK at requested address of " +
-                  zkClientPort + ", instead got: " + clientPort + ". Aborting. Why? " +
-                  "Because clients (eg shell) wont be able to find this ZK quorum";
-              System.err.println(errorMsg);
-              throw new IOException(errorMsg);
-            }
-            conf.set("hbase.zookeeper.property.clientPort",
-              Integer.toString(clientPort));
-            // Need to have the zk cluster shutdown when master is shutdown.
-            // Run a subclass that does the zk cluster shutdown on its way out.
-            LocalHBaseCluster cluster = new LocalHBaseCluster(conf, 1,
-              LocalHMaster.class, HRegionServer.class);
-            ((LocalHMaster)cluster.getMaster()).setZKCluster(zooKeeperCluster);
-            cluster.startup();
-          } else {
-            HMaster master = constructMaster(masterClass, conf);
-            if (master.isStopped()) {
-              LOG.info("Won't bring the Master up as a shutdown is requested");
-              return;
-            }
-            master.start();
-          }
-        } catch (Throwable t) {
-          LOG.error("Failed to start master", t);
-          System.exit(-1);
-        }
-      } else if (cmd.getArgList().contains("stop")) {
-        HBaseAdmin adm = null;
-        try {
-          adm = new HBaseAdmin(conf);
-        } catch (MasterNotRunningException e) {
-          LOG.error("Master not running");
-          System.exit(0);
-        } catch (ZooKeeperConnectionException e) {
-          LOG.error("ZooKeeper not available");
-          System.exit(0);
-        }
-        try {
-          adm.shutdown();
-        } catch (Throwable t) {
-          LOG.error("Failed to stop master", t);
-          System.exit(-1);
-        }
-      } else {
-        throw new ParseException("Unknown argument(s): " +
-            org.apache.commons.lang.StringUtils.join(cmd.getArgs(), " "));
-      }
-    } catch (ParseException e) {
-      LOG.error("Could not parse: ", e);
-      printUsageAndExit();
+      Class<? extends HMaster> masterClass) throws Exception {
+    int ret = ToolRunner.run(
+      HBaseConfiguration.create(),
+      new HMasterCommandLine(masterClass),
+      args);
+    if (ret != 0) {
+      System.exit(ret);
     }
+    // Otherwise exit gracefully so other threads clean up
   }
 
   /**
@@ -1008,7 +870,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
    * @param args
    * @throws IOException 
    */
-  public static void main(String [] args) throws IOException {
+  public static void main(String [] args) throws Exception {
     doMain(args, HMaster.class);
   }
 }

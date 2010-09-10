@@ -29,6 +29,7 @@ Release 0.21.0 - Unreleased
    HBASE-2553  Revisit IncrementColumnValue implementation in 0.22
    HBASE-2692  Master rewrite and cleanup for 0.90
                (Karthik Ranganathan, Jon Gray & Stack)
+   HBASE-2961  Close zookeeper when done with it (HCM, Master, and RS)
                
 
   BUG FIXES
@@ -516,6 +517,9 @@ Release 0.21.0 - Unreleased
    HBASE-2973  NPE in LogCleaner
    HBASE-2974  LoadBalancer ArithmeticException: / by zero
    HBASE-2975  DFSClient names in master and RS should be unique
+   HBASE-2978  LoadBalancer IndexOutOfBoundsException
+   HBASE-2983  TestHLog unit test is mis-comparing an assertion
+               (Alex Newman via Todd Lipcon)
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -900,6 +904,7 @@ Release 0.21.0 - Unreleased
                HBaseObjectWritable (Gary Helmling via Andrew Purtell)
    HBASE-2976  Running HFile tool passing fully-qualified filename I get
                'IllegalArgumentException: Wrong FS'
+   HBASE-2977  Refactor master command line to a new class
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
