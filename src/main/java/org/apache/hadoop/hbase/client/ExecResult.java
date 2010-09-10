@@ -27,6 +27,11 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+/**
+ * Represents the return value from a {@link Exec} invocation.  This simply
+ * wraps the value for easier {@link org.apache.hadoop.hbase.io.HbaseObjectWritable}
+ * serialization.
+ */
 public class ExecResult implements Writable {
   private byte[] regionName;
   private Object value;

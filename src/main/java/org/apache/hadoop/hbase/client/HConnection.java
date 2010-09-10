@@ -229,19 +229,30 @@ public interface HConnection {
   throws IOException;
 
   /**
-   *
-   * @param list
-   * @param tableName
-   * @param pool
-   * @param callback
-   * @return
-   * @throws IOException
+   * Parameterized batch processing, allowing varying return types for different
+   * {@link Row} implementations.
    */
   public <R> R[] processBatchCallback(List<? extends Row> list,
       byte[] tableName,
       ExecutorService pool,
       HTable.BatchCallback<R> callback) throws IOException;
 
+
+  /**
+   * Executes the given {@link HTable.BatchCall} callable for each row in the
+   * given list and invokes {@link HTable.BatchCallback#update(byte[], byte[], Object)}
+   * for each result returned.
+   *
+   * @param protocol the protocol interface being called
+   * @param list a list of rows for which the callable should be invoked
+   * @param tableName table name for the coprocessor invoked
+   * @param pool ExecutorService used to submit the calls per row
+   * @param call instance on which to invoke {@link HTable.BatchCall#call(Object)} for each row
+   * @param callback instance on which to invoke {@link HTable.BatchCallback#update(byte[], byte[], Object)} for each result
+   * @param <T> the protocol interface type
+   * @param <R> the callable's return type
+   * @throws IOException
+   */
   public <T extends CoprocessorProtocol,R> void processExecs(
       final Class<T> protocol,
       List<? extends Row> list,

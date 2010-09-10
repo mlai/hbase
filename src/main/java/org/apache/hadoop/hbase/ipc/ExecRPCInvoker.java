@@ -29,6 +29,12 @@ import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 
+/**
+ * Backs a {@link CoprocessorProtocol} subclass proxy and forwards method
+ * invocations for server execution.  Note that internally this will issue a
+ * separate RPC call for each method invocation (using a
+ * {@link org.apache.hadoop.hbase.client.ServerCallable} instance).
+ */
 public class ExecRPCInvoker implements InvocationHandler {
   private static Log LOG = LogFactory.getLog(ExecRPCInvoker.class);
 
