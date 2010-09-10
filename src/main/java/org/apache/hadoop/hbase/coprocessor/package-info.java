@@ -22,7 +22,8 @@
 <h2>Table of Contents</h2>
 <ul>
 <li><a href="#overview">Overview</a></li>
-<li><a href="#lifecycle">LifeCycle hooks</a></li>
+<li><a href="#lifecycle">Lifecycle hooks</a></li>
+<li><a href="#regionobserver">Region observer</a></li>
 </ul>
 
  <h2><a name="overview">Overview</a></h2>
@@ -35,7 +36,7 @@ jars on the region server's classpath or via the HDFS classloader.
 While a coprocessor can have arbitrary function, it is required to
 implement this interface.
 <p>
-The design goal of this interface is to provide simple features for
+The design goal CommandTargetof this interface is to provide simple features for
 making coprocessors useful, while exposing no more internal state or
 control actions of the region server than necessary and not exposing them
 directly.
@@ -50,7 +51,7 @@ unassigned -> pendingOpen -> open -> pendingClose -> closed.
 Coprocessors have opportunity to intercept and handle events in
 pendingOpen, open, and pendingClose states.
 <p>
-<h2><a href="#lifecycle">Lifecycle hooks</a></h2>
+<h2><a name="lifecycle">Lifecycle hooks</a></h2>
 <h3>PendingOpen</h3>
 <p>
 The region server is opening a region to bring it online. Coprocessors
@@ -86,7 +87,7 @@ an indication to this effect will be passed as an argument.
 </ul>
 <p>
 
-<h2>RegionObserver</h2>
+<h2><a name="regionobserver">RegionObserver</a></h2>
 If the coprocessor implements the <tt>RegionObserver</tt> interface it can observe
 and mediate client actions on the region:
 <p>
@@ -106,40 +107,6 @@ and mediate client actions on the region:
   <li>preScannerClose, postScannerClose: Called before and after the client 
   closes a scanner.</li><p>
 </ul>
-
-<h2>CommandTarget</h2>
-(To be implemented)
-<p>
-If the coprocessor implements the <tt>CommandTarget</tt> interface it can
-support a generic ioctl-like command mechanism which the client side
-library will wrap with Callable and Futures:
-<p>
-<ul>
-  <li>onCommand: Invoked when the client wants to run a synchronous command
-   on the coprocessor.</li><p>
-  <li>onCommandAsyncSubmit: Invoked when the client wants to run an
-  asynchronous command on the coprocessor.</li><p>
-  <li>onCommandAsyncPoll: Invoked when the client polls asynchronous command
-  results.</li><p>
-</ul>
-<p>
-<h2>FilterInterface</h2>
-(To be implemented)
-<p>
-If the coprocessor implements the <tt>FilterInterface</tt> interface to
-provide server side support for query filters for Gets and Scans:
-<p>
-<ul>
-  <li>onReset: Reset the state of the filter between rows.</li><p>
-  <li>onFilterRowKey: Filter a row based on the row key.</li><p>
-  <li>onFilterAllRemaining: Called to provide opportunities to terminate
-  the entire scan.</li><p>
-  <li>onFilterKeyValue: Filter based on the column family, column qualifier
-   and/or the column value.</li><p>
-  <li>onFilterRow: Last chance to veto a row given results from earlier
-  upcalls.</li><p>
-</ul>
-<p>
 
 */
 package org.apache.hadoop.hbase.coprocessor;

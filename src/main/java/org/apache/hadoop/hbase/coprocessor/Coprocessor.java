@@ -25,17 +25,20 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 public interface Coprocessor {
   public static final int VERSION = 1;
 
-  // Operational state
-
+  /** 
+   * Operational state
+   */
   public enum State {
     OPENING,
     OPEN,
     CLOSING
   }
 
-  // Installation priority
+  /**
+   * Installation priority. Coprocessors will be executed in sequence
+   * by the order of coprocessor priority.
+   */
   public enum Priority {
-
     HIGHEST(0),
     SYSTEM(Integer.MAX_VALUE/4),
     USER(Integer.MAX_VALUE/2),

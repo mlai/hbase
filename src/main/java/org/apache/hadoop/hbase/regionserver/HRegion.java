@@ -3163,7 +3163,7 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   /** @return the coprocessor host */
-  public CoprocessorHost getCoprocessorHost() {
+  CoprocessorHost getCoprocessorHost() {
     return coprocessorHost;
   }
 
