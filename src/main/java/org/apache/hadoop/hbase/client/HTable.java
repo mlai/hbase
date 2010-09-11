@@ -1345,18 +1345,6 @@ public class HTable implements HTableInterface {
       BatchCall<T,R> callable, BatchCallback<R> callback)
       throws IOException {
     connection.processExecs(protocol, rows, tableName, pool, callable, callback);
-    /*
-    T instance = (T)Proxy.newProxyInstance(configuration.getClassLoader(),
-        new Class[]{protocol},
-        new ProxyRPCInvoker(configuration,
-            connection,
-            protocol,
-            tableName,
-            rows,
-            pool,
-            callback));
-    callable.call(instance);
-    */
   }
 
   /**
@@ -1407,19 +1395,6 @@ public class HTable implements HTableInterface {
           }
         });
     connection.processExecs(protocol, rows, tableName, pool, callable, callback);
-    // call callable for all regions
-    /*
-    T instance = (T)Proxy.newProxyInstance(configuration.getClassLoader(),
-        new Class[]{protocol},
-        new ProxyRPCInvoker(configuration,
-            connection,
-            protocol,
-            tableName,
-            rows,
-            pool,
-            callback));
-    callable.call(instance);
-    */
   }
 
   private List<byte[]> getRowKeysInRange(RowRange range) throws IOException {
