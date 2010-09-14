@@ -94,6 +94,26 @@ public final class Compression {
         return lzoCodec;
       }
     },
+    LZMA("lzma") {
+      // Use base type to avoid compile-time dependencies.
+      private CompressionCodec lzmaCodec;
+
+      @Override
+      CompressionCodec getCodec() {
+        if (lzmaCodec == null) {
+          Configuration conf = new Configuration();
+          conf.setBoolean("hadoop.native.lib", true);
+          try {
+            Class externalCodec =
+                ClassLoader.getSystemClassLoader().loadClass("org.apache.hadoop.io.compress.LzmaCodec");
+            lzmaCodec = (CompressionCodec) ReflectionUtils.newInstance(externalCodec, conf);
+          } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+          }
+        }
+        return lzmaCodec;
+      }
+    },
     GZ("gz") {
       private transient GzipCodec codec;
 
