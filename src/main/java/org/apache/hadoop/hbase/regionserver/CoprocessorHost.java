@@ -34,7 +34,6 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.conf.Configuration;
 
 import java.io.File;
 import java.io.IOException;
@@ -246,7 +245,8 @@ public class CoprocessorHost {
           ((HTableWrapper)table).internalClose();
         } catch (IOException e) {
           // nothing can be done here
-          LOG.warn(StringUtils.stringifyException(e));
+          LOG.warn("Failed to close " + 
+              Bytes.toStringBinary(table.getTableName()), e);
         }
       }
     }
@@ -273,7 +273,6 @@ public class CoprocessorHost {
      * @exception IOException Exception
      */
     public HTableInterface getTable(byte[] tableName) throws IOException {
-      // TODO: Access check
       return new HTableWrapper(tableName);
     }
 

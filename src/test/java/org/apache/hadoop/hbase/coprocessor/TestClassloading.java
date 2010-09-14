@@ -40,6 +40,10 @@ public class TestClassloading extends HBaseClusterTestCase {
   // This is a jar that contains a basic manifest and a single class
   // org/apache/hadoop/hbase/coprocessor/TestClassloading_Main which
   // implements the Coprocessor interface
+  //
+  // The ideal way is to generate the jar file at build process and 
+  // load it as a java resource.
+  //
   // Source code:
   //
   // package org.apache.hadoop.hbase.coprocessor;

@@ -65,7 +65,7 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get,
-      List<KeyValue> results)
+      final List<KeyValue> results)
   throws CoprocessorException;
   /**
    * Called after the client perform a get()
@@ -76,7 +76,7 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
-    List<KeyValue> results)
+    final List<KeyValue> results)
   throws CoprocessorException;
   
   /**
