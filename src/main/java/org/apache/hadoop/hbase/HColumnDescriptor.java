@@ -361,11 +361,11 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   }
 
   /** @return compression type being used for the column family for major 
-   compression */
+      compression */
   public Compression.Algorithm getCompactionCompression() {
     String n = getValue(COMPRESSION_COMPACT);
     if (n == null) {
-      return Compression.Algorithm.NONE;
+      return getCompression();
     }
     return Compression.Algorithm.valueOf(n.toUpperCase());
   }
@@ -449,8 +449,8 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   public void setCompactionCompressionType(Compression.Algorithm type) {
     String compressionType;
     switch (type) {
-      case GZ: compressionType = "GZ"; break;
       case LZO: compressionType = "LZO"; break;
+      case GZ: compressionType = "GZ"; break;
       case LZMA: compressionType = "LZMA"; break;
       default: compressionType = "NONE"; break;
     }

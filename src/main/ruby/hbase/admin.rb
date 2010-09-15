@@ -220,8 +220,8 @@ module Hbase
         # No method parameter, try to use the args as a column definition
         unless method = arg.delete(METHOD)
           descriptor = hcd(arg)
-          if args[COMPRESSION_COMPACT]
-            descriptor.setValue(COMPRESSION_COMPACT, args[COMPRESSION_COMPACT])
+          if arg[COMPRESSION_COMPACT]
+            descriptor.setValue(COMPRESSION_COMPACT, arg[COMPRESSION_COMPACT])
           end
           column_name = descriptor.getNameAsString
 

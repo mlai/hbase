@@ -147,11 +147,11 @@ public class Store implements HeapSize {
     this.blockcache = family.isBlockCacheEnabled();
     this.blocksize = family.getBlocksize();
     this.compression = family.getCompression();
-    if (family.hasCompactionCompression()) {
-      this.compactionCompression = family.getCompactionCompression();
-    } else {
-      this.compactionCompression = this.compression;
-    }
+    // avoid overriding compression setting for major compactions if the user 
+    // has not specified it separately
+    this.compactionCompression =
+      (family.getCompactionCompression() != Compression.Algorithm.NONE) ? 
+        family.getCompactionCompression() : this.compression;
     this.comparator = info.getComparator();
     // getTimeToLive returns ttl in seconds.  Convert to milliseconds.
     this.ttl = family.getTimeToLive();
