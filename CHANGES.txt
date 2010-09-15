@@ -520,6 +520,8 @@ Release 0.21.0 - Unreleased
    HBASE-2978  LoadBalancer IndexOutOfBoundsException
    HBASE-2983  TestHLog unit test is mis-comparing an assertion
                (Alex Newman via Todd Lipcon)
+   HBASE-2986  multi writable can npe causing client hang
+   HBASE-2979  Fix failing TestMultParrallel in hudson build
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -905,6 +907,8 @@ Release 0.21.0 - Unreleased
    HBASE-2976  Running HFile tool passing fully-qualified filename I get
                'IllegalArgumentException: Wrong FS'
    HBASE-2977  Refactor master command line to a new class
+   HBASE-2980  Refactor region server command line to a new class
+   HBASE-2988  Support alternate compression for major compactions
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts

@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
-import java.lang.management.RuntimeMXBean;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -50,12 +49,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.collect.ClassToInstanceMap;
-import com.google.common.collect.MapMaker;
 import com.google.common.collect.MutableClassToInstanceMap;
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -71,7 +65,6 @@ import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.HServerLoad;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.LocalHBaseCluster;
 import org.apache.hadoop.hbase.MasterAddressTracker;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.RemoteExceptionHandler;
@@ -361,7 +354,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
 
     // create the catalog tracker and start it
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.connection,
-      this, this.conf.getInt("hbase.regionserver.catalog.timeout", -1));
+      this, this.conf.getInt("hbase.regionserver.catalog.timeout", Integer.MAX_VALUE));
     catalogTracker.start();
 
     this.clusterStatusTracker = new ClusterStatusTracker(this.zooKeeper, this);
@@ -1152,7 +1145,6 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       RootLocationEditor.setRootLocation(getZooKeeper(),
         getServerInfo().getServerAddress());
     } else if (r.getRegionInfo().isMetaRegion()) {
-      // TODO: doh, this has weird naming between RootEditor/MetaEditor
       MetaEditor.updateMetaLocation(ct, r.getRegionInfo(), getServerInfo());
     } else {
       if (daughter) {
@@ -1370,8 +1362,9 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     }
   }
 
+  @Override
   public HRegionInfo getRegionInfo(final byte[] regionName)
-      throws NotServingRegionException {
+  throws NotServingRegionException {
     requestCount.incrementAndGet();
     return getRegion(regionName).getRegionInfo();
   }
@@ -1944,6 +1937,10 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     return sortedset;
   }
 
+  public int getNumberOfOnlineRegions() {
+    return onlineRegions.size();
+  }
+
   /**
    * For tests and web ui.
    * This method will only work if HRegionServer is in the same JVM as client;
@@ -2241,17 +2238,16 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
         if (multi.size() == 1) {
           throw ioe;
         } else {
-          LOG.error("Exception found while attempting " + action.toString()
-              + " " + StringUtils.stringifyException(ioe));
+          LOG.error("Exception found while attempting " + action.toString() +
+            " " + StringUtils.stringifyException(ioe));
           response.add(regionName,null);
           // stop processing on this region, continue to the next.
         }
       }
     }
-
     return response;
   }
-  
+
   /**
    * @deprecated Use HRegionServer.multi( MultiAction action) instead
    */
@@ -2371,18 +2367,6 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     return t;
   }
 
-  private static void printUsageAndExit() {
-    printUsageAndExit(null);
-  }
-
-  private static void printUsageAndExit(final String message) {
-    if (message != null) {
-      System.err.println(message);
-    }
-    System.err.println("Usage: java org.apache.hbase.HRegionServer start|stop [-D <conf.param=value>]");
-    System.exit(0);
-  }
-
   /**
    * Utility for constructing an instance of the passed HRegionServer class.
    *
@@ -2438,79 +2422,15 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   }
 
   /**
-   * Do class main.
-   *
-   * @param args
-   * @param regionServerClass
-   *          HRegionServer to instantiate.
+   * @see org.apache.hadoop.hbase.regionserver.HRegionServerCommandLine
    */
-  protected static void doMain(final String[] args,
-      final Class<? extends HRegionServer> regionServerClass) {
-    Configuration conf = HBaseConfiguration.create();
-
-    Options opt = new Options();
-    opt.addOption("D", true, "Override HBase Configuration Settings");
-    try {
-      CommandLine cmd = new GnuParser().parse(opt, args);
-
-      if (cmd.hasOption("D")) {
-        for (String confOpt : cmd.getOptionValues("D")) {
-          String[] kv = confOpt.split("=", 2);
-          if (kv.length == 2) {
-            conf.set(kv[0], kv[1]);
-            LOG.debug("-D configuration override: " + kv[0] + "=" + kv[1]);
-          } else {
-            throw new ParseException("-D option format invalid: " + confOpt);
-          }
-        }
-      }
-
-      if (cmd.getArgList().contains("start")) {
-        try {
-          // If 'local', don't start a region server here. Defer to
-          // LocalHBaseCluster. It manages 'local' clusters.
-          if (LocalHBaseCluster.isLocal(conf)) {
-            LOG.warn("Not starting a distinct region server because "
-                + HConstants.CLUSTER_DISTRIBUTED + " is false");
-          } else {
-            RuntimeMXBean runtime = ManagementFactory.getRuntimeMXBean();
-            if (runtime != null) {
-              LOG.info("vmInputArguments=" + runtime.getInputArguments());
-            }
-            HRegionServer hrs = constructRegionServer(regionServerClass, conf);
-            startRegionServer(hrs);
-          }
-        } catch (Throwable t) {
-          LOG.error( "Can not start region server because "+
-              StringUtils.stringifyException(t) );
-          System.exit(-1);
-        }
-      } else if (cmd.getArgList().contains("stop")) {
-        throw new ParseException("To shutdown the regionserver run " +
-            "bin/hbase-daemon.sh stop regionserver or send a kill signal to" +
-            "the regionserver pid");
-      } else {
-        throw new ParseException("Unknown argument(s): " +
-            org.apache.commons.lang.StringUtils.join(cmd.getArgs(), " "));
-      }
-    } catch (ParseException e) {
-      LOG.error("Could not parse", e);
-      printUsageAndExit();
-    }
-  }
-
-  /**
-   * @param args
-   */
-  public static void main(String[] args) {
+  public static void main(String[] args) throws Exception {
     Configuration conf = HBaseConfiguration.create();
     @SuppressWarnings("unchecked")
     Class<? extends HRegionServer> regionServerClass = (Class<? extends HRegionServer>) conf
         .getClass(HConstants.REGION_SERVER_IMPL, HRegionServer.class);
-    doMain(args, regionServerClass);
+
+    new HRegionServerCommandLine(regionServerClass).doMain(args);
   }
 
-  public int getNumberOfOnlineRegions() {
-    return onlineRegions.size();
-  }
 }

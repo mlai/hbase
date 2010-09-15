@@ -981,7 +981,7 @@ public abstract class HBaseServer implements RpcServer {
             throw e;
           }
         } catch (Exception e) {
-          LOG.info(getName() + " caught: " +
+          LOG.warn(getName() + " caught: " +
                    StringUtils.stringifyException(e));
         }
       }

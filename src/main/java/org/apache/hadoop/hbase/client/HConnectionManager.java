@@ -1200,9 +1200,8 @@ public class HConnectionManager {
               for (Entry<byte[], List<Pair<Integer,R>>> e : resp.getResults().entrySet()) {
                 byte[] regionName = e.getKey();
                 List<Pair<Integer, R>> regionResults = e.getValue();
-                for (int i = 0; i < regionResults.size(); i++) {
-                  Pair<Integer, R> regionResult = regionResults.get(i);
-                  if (regionResult.getSecond() == null) {
+                for (Pair<Integer, R> regionResult : regionResults) {
+                  if (regionResult == null) {
                     // failed
                     LOG.debug("Failures for region: " + Bytes.toStringBinary(regionName) + ", removing from cache");
                   } else {
@@ -1277,7 +1276,7 @@ public class HConnectionManager {
         ExecutorService pool) throws IOException {
       Result[] results = new Result[list.size()];
       processBatch((List) list, tableName, pool, results);
-      
+
       // mutate list so that it is empty for complete success, or contains only failed records
       // results are returned in the same order as the requests in list
       // walk the list backwards, so we can remove from list without impacting the indexes of earlier members

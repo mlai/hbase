@@ -28,7 +28,17 @@ import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerInfo;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.Stoppable;
-import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Exec;
+import org.apache.hadoop.hbase.client.ExecResult;
+import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.MultiAction;
+import org.apache.hadoop.hbase.client.MultiPut;
+import org.apache.hadoop.hbase.client.MultiPutResponse;
+import org.apache.hadoop.hbase.client.MultiResponse;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 
 /**
@@ -47,7 +57,6 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    */
   public HRegionInfo getRegionInfo(final byte [] regionName)
   throws NotServingRegionException;
-
 
   /**
    * Return all the data for the row that matches <i>row</i> exactly,
@@ -280,8 +289,8 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
   /**
    * Bulk load an HFile into an open region
    */
-  public void bulkLoadHFile(String hfilePath,
-      byte[] regionName, byte[] familyName) throws IOException;
+  public void bulkLoadHFile(String hfilePath, byte[] regionName, byte[] familyName)
+  throws IOException;
 
   // Master methods
 
