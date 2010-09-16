@@ -2266,6 +2266,22 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     return resp;
   }
 
+  /**
+   * Executes a single {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol}
+   * method using the registered protocol handlers.
+   * {@link CoprocessorProtocol} implementations must be registered via the
+   * {@link org.apache.hadoop.hbase.regionserver.HRegionServer#registerProtocol(byte[], Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
+   * method before they are available.
+   *
+   * @param regionName name of the region against which the invocation is executed
+   * @param call an {@code Exec} instance identifying the protocol, method name,
+   *     and parameters for the method invocation
+   * @return an {@code ExecResult} instance containing the region name of the
+   *     invocation and the return value
+   * @throws IOException if no registered protocol handler is found or an error
+   *     occurs during the invocation
+   * @see org.apache.hadoop.hbase.regionserver.HRegionServer#registerProtocol(byte[], Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
+   */
   public ExecResult regionExec(byte[] regionName, Exec call)
       throws IOException {
 
