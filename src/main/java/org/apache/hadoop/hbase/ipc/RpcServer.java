@@ -20,6 +20,7 @@
 
 package org.apache.hadoop.hbase.ipc;
 
+import com.google.common.base.Function;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.VersionedProtocol;
 
@@ -56,4 +57,6 @@ public interface RpcServer {
   int getCallQueueLen();
 
   void setErrorHandler(HBaseRPCErrorHandler handler);
+
+  void setQosFunction(Function<Writable, Integer> newFunc);
 }

@@ -47,8 +47,10 @@ interface RpcEngine {
     throws IOException, InterruptedException;
 
   /** Construct a server for a protocol implementation instance. */
-  RpcServer getServer(Class<? extends VersionedProtocol> protocol, Object instance, String bindAddress,
-                       int port, int numHandlers, boolean verbose,
-                       Configuration conf) throws IOException;
+  RpcServer getServer(Class<? extends VersionedProtocol> protocol, Object instance,
+                       Class<?>[] ifaces, String bindAddress,
+                       int port, int numHandlers, int metaHandlerCount,
+                       boolean verbose, Configuration conf, int highPriorityLevel)
+      throws IOException;
 
 }

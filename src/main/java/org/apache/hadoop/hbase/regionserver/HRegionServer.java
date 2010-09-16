@@ -50,6 +50,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import com.google.common.collect.ClassToInstanceMap;
 import com.google.common.collect.MutableClassToInstanceMap;
+import com.google.common.base.Function;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -308,6 +309,85 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     initialize();
   }
 
+  private static final int NORMAL_QOS = 0;
+  private static final int QOS_THRESHOLD = 10;  // the line between low and high qos
+  private static final int HIGH_QOS = 100;
+
+  class QosFunction implements Function<Writable,Integer> {
+    public boolean isMetaRegion(byte[] regionName) {
+      HRegion region;
+      try {
+        region = getRegion(regionName);
+      } catch (NotServingRegionException ignored) {
+        return false;
+      }
+      return region.getRegionInfo().isMetaRegion();
+    }
+
+    @Override
+    public Integer apply(Writable from) {
+      if (from instanceof Invocation) {
+        Invocation inv = (Invocation) from;
+
+        String methodName = inv.getMethodName();
+
+        // scanner methods...
+        if (methodName.equals("next") || methodName.equals("close")) {
+          // translate!
+          Long scannerId;
+          try {
+            scannerId = (Long) inv.getParameters()[0];
+          } catch (ClassCastException ignored) {
+            //LOG.debug("Low priority: " + from);
+            return NORMAL_QOS; // doh.
+          }
+          String scannerIdString = Long.toString(scannerId);
+          InternalScanner scanner = scanners.get(scannerIdString);
+          if (scanner instanceof HRegion.RegionScanner) {
+            HRegion.RegionScanner rs = (HRegion.RegionScanner) scanner;
+            HRegionInfo regionName = rs.getRegionName();
+            if (regionName.isMetaRegion()) {
+              //LOG.debug("High priority scanner request: " + scannerId);
+              return HIGH_QOS;
+            }
+          }
+        }
+        else if (methodName.equals("getHServerInfo") ||
+            methodName.equals("getRegionsAssignment") ||
+            methodName.equals("unlockRow") ||
+            methodName.equals("getProtocolVersion") ||
+            methodName.equals("getClosestRowBefore")) {
+          //LOG.debug("High priority method: " + methodName);
+          return HIGH_QOS;
+        }
+        else if (inv.getParameterClasses()[0] == byte[].class) {
+          // first arg is byte array, so assume this is a regionname:
+          if (isMetaRegion((byte[]) inv.getParameters()[0])) {
+            //LOG.debug("High priority with method: " + methodName + " and region: "
+            //    + Bytes.toString((byte[]) inv.getParameters()[0]));
+            return HIGH_QOS;
+          }
+        }
+        else if (inv.getParameterClasses()[0] == MultiAction.class) {
+          MultiAction ma = (MultiAction) inv.getParameters()[0];
+          Set<byte[]> regions = ma.getRegions();
+          // ok this sucks, but if any single of the actions touches a meta, the whole
+          // thing gets pingged high priority.  This is a dangerous hack because people
+          // can get their multi action tagged high QOS by tossing a Get(.META.) AND this
+          // regionserver hosts META/-ROOT-
+          for (byte[] region: regions) {
+            if (isMetaRegion(region)) {
+              //LOG.debug("High priority multi with region: " + Bytes.toString(region));
+              return HIGH_QOS; // short circuit for the win.
+            }
+          }
+        }
+      }
+      //LOG.debug("Low priority: " + from.toString());
+      return NORMAL_QOS;
+    }
+  }
+
   /**
    * Creates all of the state that needs to be reconstructed in case we are
    * doing a restart. This is shared between the constructor and restart(). Both
@@ -320,11 +400,21 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     this.abortRequested = false;
     this.stopped = false;
 
+
+    //HRegionInterface,
+    //HBaseRPCErrorHandler, Runnable, Watcher, Stoppable, OnlineRegions
+
     // Server to handle client requests
-    this.server = HBaseRPC.getServer(this, address.getBindAddress(), address
-        .getPort(), conf.getInt("hbase.regionserver.handler.count", 10), false,
-        conf);
+    this.server = HBaseRPC.getServer(this,
+        new Class<?>[]{HRegionInterface.class, HBaseRPCErrorHandler.class,
+        OnlineRegions.class},
+        address.getBindAddress(),
+        address.getPort(), conf.getInt("hbase.regionserver.handler.count", 10),
+        conf.getInt("hbase.regionserver.metahandler.count", 10),
+        false, conf, QOS_THRESHOLD);
     this.server.setErrorHandler(this);
+    this.server.setQosFunction(new QosFunction());
+
     // Address is giving a default IP for the moment. Will be changed after
     // calling the master.
     this.serverInfo = new HServerInfo(new HServerAddress(new InetSocketAddress(
@@ -669,15 +759,15 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
             + this.serverInfo.getServerAddress() + ", Now=" + hsa.toString());
         this.serverInfo.setServerAddress(hsa);
       }
-      
-      // hack! Maps DFSClient => RegionServer for logs.  HDFS made this 
+
+      // hack! Maps DFSClient => RegionServer for logs.  HDFS made this
       // config param for task trackers, but we can piggyback off of it.
       if (this.conf.get("mapred.task.id") == null) {
         this.conf.set("mapred.task.id", 
             "hb_rs_" + this.serverInfo.getServerName() + "_" +
             System.currentTimeMillis());
       }
-      
+
       // Master sent us hbase.rootdir to use. Should be fully qualified
       // path with file system specification included. Set 'fs.defaultFS'
       // to match the filesystem on hbase.rootdir else underlying hadoop hdfs
@@ -2206,7 +2296,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
       byte[] regionName = e.getKey();
       List<Action<R>> actionsForRegion = e.getValue();
       // sort based on the row id - this helps in the case where we reach the
-      // end of a region, so that we don't have to try the rest of the 
+      // end of a region, so that we don't have to try the rest of the
       // actions in the list.
       Collections.sort(actionsForRegion);
       Row action = null;

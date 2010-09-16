@@ -22,10 +22,8 @@ package org.apache.hadoop.hbase.ipc;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.RetriesExhaustedException;
-import org.apache.hadoop.hbase.io.HbaseObjectWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.net.NetUtils;
@@ -33,12 +31,7 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 
 import javax.net.SocketFactory;
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
-import java.lang.reflect.Array;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.ConnectException;
@@ -327,51 +320,30 @@ public class HBaseRPC {
    * @param instance instance
    * @param bindAddress bind address
    * @param port port to bind to
-   * @param conf configuration
-   * @return Server
-   * @throws IOException e
-   */
-  public static RpcServer getServer(final Object instance, final String bindAddress, final int port, Configuration conf)
-    throws IOException {
-    return getServer(instance, bindAddress, port, 1, false, conf);
-  }
-
-  /**
-   * Construct a server for a protocol implementation instance listening on a
-   * port and address.
-   *
-   * @param instance instance
-   * @param bindAddress bind address
-   * @param port port to bind to
    * @param numHandlers number of handlers to start
    * @param verbose verbose flag
    * @param conf configuration
    * @return Server
    * @throws IOException e
    */
-  public static RpcServer getServer(final Object instance, final String bindAddress, final int port,
+  public static RpcServer getServer(final Object instance,
+                                 final Class<?>[] ifaces,
+                                 final String bindAddress, final int port,
                                  final int numHandlers,
-                                 final boolean verbose, Configuration conf)
+                                 int metaHandlerCount, final boolean verbose, Configuration conf, int highPriorityLevel)
     throws IOException {
-    return getServer(instance.getClass(), instance, bindAddress, port, numHandlers, verbose, conf);
-  }
-
-  /** Construct a server for a protocol implementation instance. */
-  public static RpcServer getServer(Class<? extends VersionedProtocol> protocol,
-                                 Object instance, String bindAddress,
-                                 int port, Configuration conf)
-    throws IOException {
-    return getServer(protocol, instance, bindAddress, port, 1, false, conf);
+    return getServer(instance.getClass(), instance, ifaces, bindAddress, port, numHandlers, metaHandlerCount, verbose, conf, highPriorityLevel);
   }
 
   /** Construct a server for a protocol implementation instance. */
   public static RpcServer getServer(Class protocol,
-                                 Object instance, String bindAddress, int port,
-                                 int numHandlers,
-                                 boolean verbose, Configuration conf)
-    throws IOException {  
+                                 final Object instance,
+                                 final Class<?>[] ifaces, String bindAddress,
+                                 int port,
+                                 final int numHandlers,
+                                 int metaHandlerCount, final boolean verbose, Configuration conf, int highPriorityLevel)
+    throws IOException {
     return getProtocolEngine(protocol, conf)
-      .getServer(protocol, instance, bindAddress, port, numHandlers, verbose,
-                 conf);
+        .getServer(protocol, instance, ifaces, bindAddress, port, numHandlers, metaHandlerCount, verbose, conf, highPriorityLevel);
   }
 }
