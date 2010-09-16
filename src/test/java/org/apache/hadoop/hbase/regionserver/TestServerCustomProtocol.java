@@ -87,9 +87,8 @@ public class TestServerCustomProtocol {
     Thread.sleep(5000);
     for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
       for (HRegionInfo r : t.getRegionServer().getOnlineRegions()) {
-        t.getRegionServer().registerProtocol(r.getRegionName(),
-            PingProtocol.class,
-            new PingHandler());
+        t.getRegionServer().getOnlineRegion(r.getRegionName())
+            .registerProtocol(PingProtocol.class, new PingHandler());
       }
     }
     Put puta = new Put( ROW_A );

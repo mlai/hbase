@@ -256,11 +256,6 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   // Replication services. If no replication, this handler will be null.
   private Replication replicationHandler;
 
-  // Registered region protocol handlers
-  private ConcurrentMap<byte[], ClassToInstanceMap<CoprocessorProtocol>>
-      regionProtocols = new ConcurrentSkipListMap<byte[], ClassToInstanceMap<CoprocessorProtocol>>(Bytes.BYTES_COMPARATOR);
-
-
   /**
    * Starts a HRegionServer at the default location
    *
@@ -2315,7 +2310,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
             response.add(regionName, new Pair<Integer, Result>(
                 a.getOriginalIndex(), new Result()));
           } else if (action instanceof Exec) {
-            ExecResult result = regionExec(regionName, (Exec)action);
+            ExecResult result = exec(regionName, (Exec)action);
             response.add(regionName, new Pair<Integer, Object>(
                 a.getOriginalIndex(), result.getValue()
             ));
@@ -2359,8 +2354,8 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   /**
    * Executes a single {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol}
    * method using the registered protocol handlers.
-   * {@link CoprocessorProtocol} implementations must be registered via the
-   * {@link org.apache.hadoop.hbase.regionserver.HRegionServer#registerProtocol(byte[], Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
+   * {@link CoprocessorProtocol} implementations must be registered per-region via the
+   * {@link org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
    * method before they are available.
    *
    * @param regionName name of the region against which the invocation is executed
@@ -2370,46 +2365,19 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    *     invocation and the return value
    * @throws IOException if no registered protocol handler is found or an error
    *     occurs during the invocation
-   * @see org.apache.hadoop.hbase.regionserver.HRegionServer#registerProtocol(byte[], Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
+   * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
    */
-  public ExecResult regionExec(byte[] regionName, Exec call)
+  @Override
+  public ExecResult exec(byte[] regionName, Exec call)
       throws IOException {
-
-    Class<? extends CoprocessorProtocol> protocol = call.getProtocol();
-    ClassToInstanceMap<CoprocessorProtocol> regionHandlers =
-        regionProtocols.get(regionName);
-    if (regionHandlers == null || !regionHandlers.containsKey(protocol)) {
-      throw new IOException("No matching handler for protocol "+
-          protocol.getName()+" in region "+Bytes.toStringBinary(regionName));
-    }
-
-    CoprocessorProtocol handler = regionHandlers.getInstance(protocol);
-    Object value = null;
-
+    checkOpen();
+    requestCount.incrementAndGet();
     try {
-      Method method = protocol.getMethod(
-          call.getMethodName(), call.getParameterTypes());
-      method.setAccessible(true);
-
-      value = method.invoke(handler, call.getParameters());
-    } catch (InvocationTargetException e) {
-      Throwable target = e.getTargetException();
-      if (target instanceof IOException) {
-        throw (IOException)target;
-      }
-      IOException ioe = new IOException(target.toString());
-      ioe.setStackTrace(target.getStackTrace());
-      throw ioe;
-    } catch (Throwable e) {
-      if (!(e instanceof IOException)) {
-        LOG.error("Unexpected throwable object ", e);
-      }
-      IOException ioe = new IOException(e.toString());
-      ioe.setStackTrace(e.getStackTrace());
-      throw ioe;
+      HRegion region = getRegion(regionName);
+      return region.exec(call);
+    } catch (Throwable t) {
+      throw convertThrowableToIOE(cleanup(t));
     }
-
-    return new ExecResult(regionName, value);
   }
 
   public String toString() {
@@ -2498,33 +2466,6 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   throws IOException {
     if (this.replicationHandler == null) return;
     this.replicationHandler.replicateLogEntries(entries);
-  }
-
-  public <T extends CoprocessorProtocol> boolean registerProtocol(
-      byte[] region, Class<T> protocol, T handler) {
-    this.regionProtocols.putIfAbsent(region, MutableClassToInstanceMap.create(
-        new ConcurrentHashMap<Class<? extends CoprocessorProtocol>,CoprocessorProtocol>()
-    ));
-    ClassToInstanceMap<CoprocessorProtocol> handlers =
-        this.regionProtocols.get(region);
-
-    /* No stacking of protocol handlers is currently allowed.  The
-     * first to claim wins!
-     */
-    if (handlers.containsKey(protocol)) {
-      LOG.error("Protocol "+protocol.getName()+
-          " already registered, rejecting request from "+
-          handler
-      );
-      return false;
-    }
-
-    handlers.putInstance(protocol, handler);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Registered protocol handler: region="+
-          Bytes.toStringBinary(region)+" protocol="+protocol.getName());
-    }
-    return true;
   }
 
   /**

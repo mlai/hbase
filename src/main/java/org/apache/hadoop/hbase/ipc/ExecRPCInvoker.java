@@ -70,7 +70,7 @@ public class ExecRPCInvoker implements InvocationHandler {
         ServerCallable<ExecResult> callable =
             new ServerCallable<ExecResult>(connection, table, row.getRow()) {
               public ExecResult call() throws Exception {
-                return server.regionExec(location.getRegionInfo().getRegionName(),
+                return server.exec(location.getRegionInfo().getRegionName(),
                     exec);
               }
             };

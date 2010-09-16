@@ -361,7 +361,7 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    * Executes a single {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol}
    * method using the registered protocol handlers.
    * {@link CoprocessorProtocol} implementations must be registered via the
-   * {@link org.apache.hadoop.hbase.regionserver.HRegionServer#registerProtocol(byte[], Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
+   * {@link org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
    * method before they are available.
    *
    * @param regionName name of the region against which the invocation is executed
@@ -371,8 +371,8 @@ public interface HRegionInterface extends HBaseRPCProtocolVersion, Stoppable, Ab
    *     invocation and the return value
    * @throws IOException if no registered protocol handler is found or an error
    *     occurs during the invocation
-   * @see org.apache.hadoop.hbase.regionserver.HRegionServer#registerProtocol(byte[], Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
+   * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
    */
-  public ExecResult regionExec(byte[] regionName, Exec call)
+  public ExecResult exec(byte[] regionName, Exec call)
       throws IOException;  
 }
