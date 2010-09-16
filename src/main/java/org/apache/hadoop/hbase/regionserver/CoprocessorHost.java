@@ -331,6 +331,8 @@ public class CoprocessorHost {
 
     // load default coprocessors from configure file
     String defaultCPClasses = conf.get("hbase.coprocessor.default.classes");
+    if (defaultCPClasses == null || defaultCPClasses.length() == 0)
+      return;
     StringTokenizer st = new StringTokenizer(defaultCPClasses, ",");
     while (st.hasMoreTokens()) {
       String className = st.nextToken();
