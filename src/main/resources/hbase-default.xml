@@ -472,6 +472,18 @@
       this means the root location is stored at /hbase/root-region-server.
     </description>
   </property>
+  
+  <property>
+    <name>hbase.coprocessor.default.classes</name>
+    <value></value>
+    <description>A comma-separated list of Coprocessors that are loaded by
+    default. For any override coprocessor method, these classes will be called 
+    in order. After implement your own
+    Coprocessor, just put it in HBase's classpath and add the fully
+    qualified class name here. 
+    A coprocessor can also be loaded on demand by setting HTableDescriptor.
+    </description>
+  </property> 
 
   <!--
   The following three properties are used together to create the list of

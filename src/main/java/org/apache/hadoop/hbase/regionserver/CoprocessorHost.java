@@ -330,8 +330,7 @@ public class CoprocessorHost {
     Class<?> implClass = null;
 
     // load default coprocessors from configure file
-    String defaultCPClasses = conf.get("hbase.coprocessor.default.classes", 
-        "org.apache.hadoop.hbase.coprocessor.RBACCoprocessor");
+    String defaultCPClasses = conf.get("hbase.coprocessor.default.classes");
     StringTokenizer st = new StringTokenizer(defaultCPClasses, ",");
     while (st.hasMoreTokens()) {
       String className = st.nextToken();
