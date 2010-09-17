@@ -29,6 +29,7 @@ Release 0.21.0 - Unreleased
    HBASE-2553  Revisit IncrementColumnValue implementation in 0.22
    HBASE-2692  Master rewrite and cleanup for 0.90
                (Karthik Ranganathan, Jon Gray & Stack)
+   HBASE-2961  Close zookeeper when done with it (HCM, Master, and RS)
                
 
   BUG FIXES
@@ -506,6 +507,21 @@ Release 0.21.0 - Unreleased
    HBASE-2925  LRU of HConnectionManager.HBASE_INSTANCES breaks if
                HBaseConfiguration is changed
                (Robert Mahfoud via Stack)
+   HBASE-2964  Deadlock when RS tries to RPC to itself inside SplitTransaction
+   HBASE-1485  Wrong or indeterminate behavior when there are duplicate
+               versions of a column (pranav via jgray)
+   HBASE-2967  Failed split: IOE 'File is Corrupt!' -- sync length not being
+               written out to SequenceFile
+   HBASE-2969  missing sync in HTablePool.getTable()
+               (Guilherme Mauro Germoglio Barbosa via Stack)
+   HBASE-2973  NPE in LogCleaner
+   HBASE-2974  LoadBalancer ArithmeticException: / by zero
+   HBASE-2975  DFSClient names in master and RS should be unique
+   HBASE-2978  LoadBalancer IndexOutOfBoundsException
+   HBASE-2983  TestHLog unit test is mis-comparing an assertion
+               (Alex Newman via Todd Lipcon)
+   HBASE-2986  multi writable can npe causing client hang
+   HBASE-2979  Fix failing TestMultParrallel in hudson build
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -886,6 +902,14 @@ Release 0.21.0 - Unreleased
    HBASE-2857  HBaseAdmin.tableExists() should not require a full meta scan
    HBASE-2962  Add missing methods to HTableInterface (and HTable)
                (Lars Francke via Stack)
+   HBASE-2942  Custom filters should not require registration in 
+               HBaseObjectWritable (Gary Helmling via Andrew Purtell)
+   HBASE-2976  Running HFile tool passing fully-qualified filename I get
+               'IllegalArgumentException: Wrong FS'
+   HBASE-2977  Refactor master command line to a new class
+   HBASE-2980  Refactor region server command line to a new class
+   HBASE-2988  Support alternate compression for major compactions
+   HBASE-2941  port HADOOP-6713 - threading scalability for RPC reads - to HBase
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -937,6 +961,7 @@ Release 0.21.0 - Unreleased
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite
    HBASE-2041  Change WAL default configuration values
+   HBASE-2997  Performance fixes - profiler driven
 
 
 Release 0.20.0 - Tue Sep  8 12:53:05 PDT 2009

@@ -92,7 +92,7 @@ public class HBaseAdmin implements Abortable {
   throws ZooKeeperConnectionException, IOException {
     if (this.catalogTracker == null) {
       this.catalogTracker = new CatalogTracker(this.connection.getZooKeeperWatcher(),
-        ServerConnectionManager.getConnection(conf), this,
+        HConnectionManager.getConnection(conf), this,
         this.conf.getInt("hbase.admin.catalog.timeout", 10 * 1000));
       try {
         this.catalogTracker.start();
@@ -273,7 +273,9 @@ public class HBaseAdmin implements Abortable {
       byte [] lastKey = null;
       for(byte [] splitKey : splitKeys) {
         if(lastKey != null && Bytes.equals(splitKey, lastKey)) {
-          throw new IllegalArgumentException("All split keys must be unique, found duplicate");
+          throw new IllegalArgumentException("All split keys must be unique, " +
+            "found duplicate: " + Bytes.toStringBinary(splitKey) +
+            ", " + Bytes.toStringBinary(lastKey));
         }
         lastKey = splitKey;
       }
@@ -408,7 +410,7 @@ public class HBaseAdmin implements Abortable {
       }
     }
     // Delete cached information to prevent clients from using old locations
-    HConnectionManager.deleteConnection(conf, false);
+    this.connection.clearRegionCache(tableName);
     LOG.info("Deleted " + Bytes.toString(tableName));
   }
 

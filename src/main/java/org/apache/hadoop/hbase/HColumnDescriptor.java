@@ -72,6 +72,7 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   }
 
   public static final String COMPRESSION = "COMPRESSION";
+  public static final String COMPRESSION_COMPACT = "COMPRESSION_COMPACT";
   public static final String BLOCKCACHE = "BLOCKCACHE";
   public static final String BLOCKSIZE = "BLOCKSIZE";
   public static final String LENGTH = "LENGTH";
@@ -185,6 +186,7 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
         desc.values.entrySet()) {
       this.values.put(e.getKey(), e.getValue());
     }
+    setMaxVersions(desc.getMaxVersions());
   }
 
   /**
@@ -353,16 +355,24 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   /** @return compression type being used for the column family */
   public Compression.Algorithm getCompression() {
     String n = getValue(COMPRESSION);
+    if (n == null) {
+      return Compression.Algorithm.NONE;
+    }
+    return Compression.Algorithm.valueOf(n.toUpperCase());
+  }
+
+  /** @return compression type being used for the column family for major 
+      compression */
+  public Compression.Algorithm getCompactionCompression() {
+    String n = getValue(COMPRESSION_COMPACT);
+    if (n == null) {
+      return getCompression();
+    }
     return Compression.Algorithm.valueOf(n.toUpperCase());
   }
 
   /** @return maximum number of versions */
-  public synchronized int getMaxVersions() {
-    if (this.cachedMaxVersions == -1) {
-      String value = getValue(HConstants.VERSIONS);
-      this.cachedMaxVersions = (value != null)?
-        Integer.valueOf(value).intValue(): DEFAULT_VERSIONS;
-    }
+  public int getMaxVersions() {
     return this.cachedMaxVersions;
   }
 
@@ -371,6 +381,7 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
    */
   public void setMaxVersions(int maxVersions) {
     setValue(HConstants.VERSIONS, Integer.toString(maxVersions));
+    cachedMaxVersions = maxVersions;
   }
 
   /**
@@ -415,6 +426,30 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
       default: compressionType = "NONE"; break;
     }
     setValue(COMPRESSION, compressionType);
+  }
+
+  /**
+   * @return Compression type setting.
+   */
+  public Compression.Algorithm getCompactionCompressionType() {
+    return getCompactionCompression();
+  }
+
+  /**
+   * Compression types supported in hbase.
+   * LZO is not bundled as part of the hbase distribution.
+   * See <a href="http://wiki.apache.org/hadoop/UsingLzoCompression">LZO Compression</a>
+   * for how to enable it.
+   * @param type Compression type setting.
+   */
+  public void setCompactionCompressionType(Compression.Algorithm type) {
+    String compressionType;
+    switch (type) {
+      case LZO: compressionType = "LZO"; break;
+      case GZ: compressionType = "GZ"; break;
+      default: compressionType = "NONE"; break;
+    }
+    setValue(COMPRESSION_COMPACT, compressionType);
   }
 
   /**
@@ -603,12 +638,12 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
         ImmutableBytesWritable value = new ImmutableBytesWritable();
         key.readFields(in);
         value.readFields(in);
-        
+
         // in version 8, the BloomFilter setting changed from bool to enum
         if (version < 8 && Bytes.toString(key.get()).equals(BLOOMFILTER)) {
           value.set(Bytes.toBytes(
               Boolean.getBoolean(Bytes.toString(value.get()))
-                ? BloomType.ROW.toString() 
+                ? BloomType.ROW.toString()
                 : BloomType.NONE.toString()));
         }
 
@@ -618,6 +653,9 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
         // Convert old values.
         setValue(COMPRESSION, Compression.Algorithm.NONE.getName());
       }
+      String value = getValue(HConstants.VERSIONS);
+      this.cachedMaxVersions = (value != null)?
+          Integer.valueOf(value).intValue(): DEFAULT_VERSIONS;
     }
   }
 

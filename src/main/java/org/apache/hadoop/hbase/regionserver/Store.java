@@ -112,7 +112,10 @@ public class Store implements HeapSize {
   private final int compactionThreshold;
   private final int blocksize;
   private final boolean blockcache;
+  /** Compression algorithm for flush files and minor compaction */
   private final Compression.Algorithm compression;
+  /** Compression algorithm for major compaction */
+  private final Compression.Algorithm compactionCompression;
 
   // Comparing KeyValues
   final KeyValue.KVComparator comparator;
@@ -144,6 +147,11 @@ public class Store implements HeapSize {
     this.blockcache = family.isBlockCacheEnabled();
     this.blocksize = family.getBlocksize();
     this.compression = family.getCompression();
+    // avoid overriding compression setting for major compactions if the user 
+    // has not specified it separately
+    this.compactionCompression =
+      (family.getCompactionCompression() != Compression.Algorithm.NONE) ? 
+        family.getCompactionCompression() : this.compression;
     this.comparator = info.getComparator();
     // getTimeToLive returns ttl in seconds.  Convert to milliseconds.
     this.ttl = family.getTimeToLive();
@@ -184,7 +192,7 @@ public class Store implements HeapSize {
     }
 
     this.maxFilesToCompact = conf.getInt("hbase.hstore.compaction.max", 10);
-    this.storefiles = ImmutableList.copyOf(loadStoreFiles());
+    this.storefiles = sortAndClone(loadStoreFiles());
   }
 
   public HColumnDescriptor getFamily() {
@@ -219,7 +227,7 @@ public class Store implements HeapSize {
   }
 
   /*
-   * Creates a series of StoreFile loaded from the given directory.
+   * Creates an unsorted list of StoreFile loaded from the given directory.
    * @throws IOException
    */
   private List<StoreFile> loadStoreFiles()
@@ -256,7 +264,6 @@ public class Store implements HeapSize {
       }
       results.add(curfile);
     }
-    Collections.sort(results, StoreFile.Comparators.FLUSH_TIME);
     return results;
   }
 
@@ -357,7 +364,7 @@ public class Store implements HeapSize {
     try {
       ArrayList<StoreFile> newFiles = new ArrayList<StoreFile>(storefiles);
       newFiles.add(sf);
-      this.storefiles = ImmutableList.copyOf(newFiles);
+      this.storefiles = sortAndClone(newFiles);
       notifyChangedReadersObservers();
     } finally {
       this.lock.writeLock().unlock();
@@ -488,12 +495,24 @@ public class Store implements HeapSize {
   }
 
   /*
+   * @param maxKeyCount
    * @return Writer for a new StoreFile in the tmp dir.
    */
   private StoreFile.Writer createWriterInTmp(int maxKeyCount)
   throws IOException {
+    return createWriterInTmp(maxKeyCount, this.compression);
+  }
+
+  /*
+   * @param maxKeyCount
+   * @param compression Compression algorithm to use
+   * @return Writer for a new StoreFile in the tmp dir.
+   */
+  private StoreFile.Writer createWriterInTmp(int maxKeyCount,
+    Compression.Algorithm compression)
+  throws IOException {
     return StoreFile.createWriter(this.fs, region.getTmpDir(), this.blocksize,
-        this.compression, this.comparator, this.conf,
+        compression, this.comparator, this.conf,
         this.family.getBloomFilterType(), maxKeyCount);
   }
 
@@ -511,7 +530,7 @@ public class Store implements HeapSize {
     try {
       ArrayList<StoreFile> newList = new ArrayList<StoreFile>(storefiles);
       newList.add(sf);
-      storefiles = ImmutableList.copyOf(newList);
+      storefiles = sortAndClone(newList);
       this.memstore.clearSnapshot(set);
 
       // Tell listeners of the change in readers.
@@ -805,7 +824,8 @@ public class Store implements HeapSize {
           // output to writer:
           for (KeyValue kv : kvs) {
             if (writer == null) {
-              writer = createWriterInTmp(maxKeyCount);
+              writer = createWriterInTmp(maxKeyCount, 
+                this.compactionCompression);
             }
             writer.append(kv);
           }
@@ -900,7 +920,7 @@ public class Store implements HeapSize {
           newStoreFiles.add(result);
         }
 
-	this.storefiles = ImmutableList.copyOf(newStoreFiles);
+        this.storefiles = sortAndClone(newStoreFiles);
 
         // Tell observers that list of StoreFiles has changed.
         notifyChangedReadersObservers();
@@ -929,6 +949,12 @@ public class Store implements HeapSize {
       this.lock.writeLock().unlock();
     }
     return result;
+  }
+
+  public ImmutableList<StoreFile> sortAndClone(List<StoreFile> storeFiles) {
+    Collections.sort(storeFiles, StoreFile.Comparators.FLUSH_TIME);
+    ImmutableList<StoreFile> newList = ImmutableList.copyOf(storeFiles);
+    return newList;
   }
 
   // ////////////////////////////////////////////////////////////////////////////
@@ -1359,7 +1385,7 @@ public class Store implements HeapSize {
   }
 
   public static final long FIXED_OVERHEAD = ClassSize.align(
-      ClassSize.OBJECT + (14 * ClassSize.REFERENCE) +
+      ClassSize.OBJECT + (15 * ClassSize.REFERENCE) +
       (4 * Bytes.SIZEOF_LONG) + (3 * Bytes.SIZEOF_INT) + (Bytes.SIZEOF_BOOLEAN * 2));
 
   public static final long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +

@@ -30,6 +30,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.regionserver.HRegionServer;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.JVMClusterUtil.RegionServerThread;
+
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.apache.hadoop.hbase.master.HMaster;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
@@ -126,7 +128,11 @@ public class LocalHBaseCluster {
 
   public JVMClusterUtil.RegionServerThread addRegionServer(final int index)
   throws IOException {
-    JVMClusterUtil.RegionServerThread rst = JVMClusterUtil.createRegionServerThread(this.conf,
+    // Create each regionserver with its own Configuration instance so each has
+    // its HConnection instance rather than share (see HBASE_INSTANCES down in
+    // the guts of HConnectionManager.
+    JVMClusterUtil.RegionServerThread rst =
+      JVMClusterUtil.createRegionServerThread(new Configuration(this.conf),
         this.regionServerClass, index);
     this.regionThreads.add(rst);
     return rst;
@@ -162,7 +168,8 @@ public class LocalHBaseCluster {
   public List<JVMClusterUtil.RegionServerThread> getLiveRegionServers() {
     List<JVMClusterUtil.RegionServerThread> liveServers =
       new ArrayList<JVMClusterUtil.RegionServerThread>();
-    for (JVMClusterUtil.RegionServerThread rst: getRegionServers()) {
+    List<RegionServerThread> list = getRegionServers();
+    for (JVMClusterUtil.RegionServerThread rst: list) {
       if (rst.isAlive()) liveServers.add(rst);
     }
     return liveServers;

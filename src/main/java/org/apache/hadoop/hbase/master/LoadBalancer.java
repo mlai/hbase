@@ -19,8 +19,6 @@
  */
 package org.apache.hadoop.hbase.master;
 
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -39,7 +37,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerInfo;
-import org.apache.hadoop.io.Writable;
 
 /**
  * Makes decisions about the placement and movement of Regions across
@@ -131,8 +128,6 @@ public class LoadBalancer {
    */
   public List<RegionPlan> balanceCluster(
       Map<HServerInfo,List<HRegionInfo>> clusterState) {
-    LOG.debug("Running load balancer");
-
     long startTime = System.currentTimeMillis();
 
     // Make a map sorted by load and count regions
@@ -140,10 +135,14 @@ public class LoadBalancer {
       new TreeMap<HServerInfo,List<HRegionInfo>>(
           new HServerInfo.LoadComparator());
     int numServers = clusterState.size();
+    if (numServers == 0) {
+      LOG.debug("numServers=0 so skipping load balancing");
+      return null;
+    }
     int numRegions = 0;
     // Iterate so we can count regions as we build the map
-    for(Map.Entry<HServerInfo, List<HRegionInfo>> server :
-      clusterState.entrySet()) {
+    for(Map.Entry<HServerInfo, List<HRegionInfo>> server:
+        clusterState.entrySet()) {
       server.getKey().getLoad().setNumberOfRegions(server.getValue().size());
       numRegions += server.getKey().getLoad().getNumberOfRegions();
       serversByLoad.put(server.getKey(), server.getValue());
@@ -236,13 +235,14 @@ public class LoadBalancer {
     // Either more regions to assign out or servers that are still underloaded
 
     // If we need more to fill min, grab one from each most loaded until enough
-    if(neededRegions != 0) {
+    if (neededRegions != 0) {
       // Walk down most loaded, grabbing one from each until we get enough
       for(Map.Entry<HServerInfo, List<HRegionInfo>> server :
         serversByLoad.descendingMap().entrySet()) {
         BalanceInfo balanceInfo = serverBalanceInfo.get(server.getKey());
         int idx =
           balanceInfo == null ? 0 : balanceInfo.getNextRegionForUnload();
+        if (idx >= server.getValue().size()) break;
         HRegionInfo region = server.getValue().get(idx);
         if (region.isMetaRegion()) continue; // Don't move meta regions.
         regionsToMove.add(new RegionPlan(region, server.getKey(), null));
@@ -527,8 +527,6 @@ public class LoadBalancer {
     private final HServerInfo source;
     private HServerInfo dest;
 
-    
-
     /**
      * Instantiate a plan for a region move, moving the specified region from
      * the specified source server to the specified destination server.
@@ -588,6 +586,13 @@ public class LoadBalancer {
     @Override
     public int compareTo(RegionPlan o) {
       return getRegionName().compareTo(o.getRegionName());
+    }
+
+    @Override
+    public String toString() {
+      return "hri=" + this.hri.getRegionNameAsString() + ", src=" +
+        (this.source == null? "": this.source.getServerName()) +
+        ", dest=" + this.dest.getServerName();
     }
   }
 }

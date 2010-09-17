@@ -42,8 +42,8 @@ import org.apache.hadoop.hbase.PleaseHoldException;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.YouAreDeadException;
-import org.apache.hadoop.hbase.client.ServerConnection;
-import org.apache.hadoop.hbase.client.ServerConnectionManager;
+import org.apache.hadoop.hbase.client.HConnection;
+import org.apache.hadoop.hbase.client.HConnectionManager;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.master.handler.ServerShutdownHandler;
 import org.apache.hadoop.hbase.master.metrics.MasterMetrics;
@@ -499,7 +499,7 @@ public class ServerManager {
    */
   public void sendRegionOpen(HServerInfo server, HRegionInfo region) {
     HRegionInterface hri = getServerConnection(server);
-    if(hri == null) {
+    if (hri == null) {
       LOG.warn("Attempting to send OPEN RPC to server " + server.getServerName()
           + " failed because no RPC connection found to this server");
       return;
@@ -530,10 +530,10 @@ public class ServerManager {
 
   private HRegionInterface getServerConnection(HServerInfo info) {
     try {
-      ServerConnection connection =
-        ServerConnectionManager.getConnection(this.master.getConfiguration());
+      HConnection connection =
+        HConnectionManager.getConnection(this.master.getConfiguration());
       HRegionInterface hri = serverConnections.get(info.getServerName());
-      if(hri == null) {
+      if (hri == null) {
         LOG.info("new connection");
         hri = connection.getHRegionConnection(info.getServerAddress(), false);
         serverConnections.put(info.getServerName(), hri);
