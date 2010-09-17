@@ -181,7 +181,7 @@ public class SplitTransaction {
   throws IOException {
     LOG.info("Starting split of region " + this.parent);
     assert !this.parent.lock.writeLock().isHeldByCurrentThread() : "Unsafe to hold write lock while performing RPCs";
-    
+
     // Coprocessor callback
     if (this.parent.getCoprocessorHost() != null) {
       this.parent.getCoprocessorHost().preSplit();
