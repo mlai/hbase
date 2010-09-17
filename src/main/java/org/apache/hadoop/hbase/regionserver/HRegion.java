@@ -232,6 +232,9 @@ public class HRegion implements HeapSize { // , Writable{
   private final ReadWriteConsistencyControl rwcc =
       new ReadWriteConsistencyControl();
 
+  // Coprocessor host
+  private final CoprocessorHost coprocessorHost;
+
   /**
    * Name of the region info file that resides just under the region directory.
    */
@@ -251,6 +254,7 @@ public class HRegion implements HeapSize { // , Writable{
     this.regiondir = null;
     this.regionInfo = null;
     this.threadWakeFrequency = 0L;
+    this.coprocessorHost = null;
   }
 
   /**
@@ -301,6 +305,8 @@ public class HRegion implements HeapSize { // , Writable{
     this.memstoreFlushSize = flushSize;
     this.blockingMemStoreSize = this.memstoreFlushSize *
       conf.getLong("hbase.hregion.memstore.block.multiplier", 2);
+
+    this.coprocessorHost = new CoprocessorHost(this, conf);
   }
 
   /**
@@ -321,6 +327,9 @@ public class HRegion implements HeapSize { // , Writable{
    */
   public long initialize(final Progressable reporter)
   throws IOException {
+    if (coprocessorHost != null) {
+      coprocessorHost.preOpen();
+    }
     // A region can be reopened if failed a split; reset flags
     this.closing.set(false);
     this.closed.set(false);
@@ -361,6 +370,10 @@ public class HRegion implements HeapSize { // , Writable{
     // (particularly if no recovered edits, seqid will be -1).
     long nextSeqid = maxSeqId + 1;
     LOG.info("Onlined " + this.toString() + "; next sequenceid=" + nextSeqid);
+
+    if (coprocessorHost != null) {
+      coprocessorHost.postOpen();
+    }
     return nextSeqid;
   }
 
@@ -475,6 +488,11 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.warn("Region " + this + " already closed");
       return null;
     }
+
+    if (coprocessorHost != null) {
+      this.coprocessorHost.preClose(abort);
+    }
+
     boolean wasFlushing = false;
     synchronized (writestate) {
       // Disable compacting and flushing by background threads for this
@@ -520,6 +538,10 @@ public class HRegion implements HeapSize { // , Writable{
         result.addAll(store.close());
       }
       this.closed.set(true);
+
+      if (coprocessorHost != null) {
+        this.coprocessorHost.postClose(abort);
+      }      
       LOG.info("Closed " + this);
       return result;
     } finally {
@@ -696,14 +718,17 @@ public class HRegion implements HeapSize { // , Writable{
       return null;
     }
     lock.readLock().lock();
+    byte [] splitRow = null;
     try {
       if (this.closed.get()) {
         LOG.debug("Skipping compaction on " + this + " because closed");
         return null;
       }
-      byte [] splitRow = null;
       if (this.closed.get()) {
         return splitRow;
+      }
+      if (coprocessorHost != null) {
+        coprocessorHost.preCompact(false);
       }
       try {
         synchronized (writestate) {
@@ -737,10 +762,13 @@ public class HRegion implements HeapSize { // , Writable{
           writestate.notifyAll();
         }
       }
-      return splitRow;
     } finally {
+      if (coprocessorHost != null) {
+        coprocessorHost.postCompact(splitRow != null);
+      }
       lock.readLock().unlock();
     }
+    return splitRow;
   }
 
   /**
@@ -775,6 +803,9 @@ public class HRegion implements HeapSize { // , Writable{
         LOG.debug("Skipping flush on " + this + " because closed");
         return false;
       }
+      if (coprocessorHost != null) {
+        coprocessorHost.preFlush();
+      }
       try {
         synchronized (writestate) {
           if (!writestate.flushing && writestate.writesEnabled) {
@@ -788,6 +819,9 @@ public class HRegion implements HeapSize { // , Writable{
             }
             return false;
           }
+        }
+        if (coprocessorHost != null) {
+          coprocessorHost.postFlush();
         }
         return internalFlushcache();
       } finally {
@@ -965,6 +999,7 @@ public class HRegion implements HeapSize { // , Writable{
         ", compaction requested=" + compactionRequested +
         ((wal == null)? "; wal=null": ""));
     }
+
     return compactionRequested;
   }
 
@@ -1009,6 +1044,10 @@ public class HRegion implements HeapSize { // , Writable{
    */
   public Result getClosestRowBefore(final byte [] row, final byte [] family)
   throws IOException {
+    Result result = null;
+    if (coprocessorHost != null) {
+      result = coprocessorHost.preGetClosestRowBefore(row, family, result);
+    }
     // look across all the HStores for this region and determine what the
     // closest key is across all column families, since the data may be sparse
     KeyValue key = null;
@@ -1019,12 +1058,15 @@ public class HRegion implements HeapSize { // , Writable{
       KeyValue kv = new KeyValue(row, HConstants.LATEST_TIMESTAMP);
       // get the closest key. (HStore.getRowKeyAtOrBefore can return null)
       key = store.getRowKeyAtOrBefore(kv);
-      if (key == null) {
-        return null;
+      if (key != null) {
+        Get get = new Get(key.getRow());
+        get.addFamily(family);
+        result = get(get, null);
       }
-      Get get = new Get(key.getRow());
-      get.addFamily(family);
-      return get(get, null);
+      if (coprocessorHost != null) {
+        result = coprocessorHost.postGetClosestRowBefore(row, family, result);
+      }
+      return result;
     } finally {
       closeRegionOperation();
     }
@@ -1066,7 +1108,14 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   protected InternalScanner instantiateInternalScanner(Scan scan, List<KeyValueScanner> additionalScanners) throws IOException {
-    return new RegionScanner(scan, additionalScanners);
+    if (coprocessorHost != null) {
+      coprocessorHost.preScannerOpen(scan);
+    }
+    InternalScanner s = new RegionScanner(scan, additionalScanners);
+    if (coprocessorHost != null) {
+      coprocessorHost.postScannerOpen(scan, s.hashCode());
+    }
+    return s;
   }
 
   /*
@@ -1101,7 +1150,6 @@ public class HRegion implements HeapSize { // , Writable{
   public void delete(Delete delete, Integer lockid, boolean writeToWAL)
   throws IOException {
     checkReadOnly();
-    checkResources();
     Integer lid = null;
     startRegionOperation();
     try {
@@ -1130,11 +1178,13 @@ public class HRegion implements HeapSize { // , Writable{
     long now = EnvironmentEdgeManager.currentTimeMillis();
     byte [] byteNow = Bytes.toBytes(now);
     boolean flush = false;
-
+    
     updatesLock.readLock().lock();
-
+    if (coprocessorHost != null) {
+      familyMap = coprocessorHost.preDelete(familyMap);
+    }
     try {
-
+      
       for (Map.Entry<byte[], List<KeyValue>> e : familyMap.entrySet()) {
 
         byte[] family = e.getKey();
@@ -1160,7 +1210,7 @@ public class HRegion implements HeapSize { // , Writable{
             get.setMaxVersions(count);
             get.addColumn(family, qual);
 
-            List<KeyValue> result = get(get);
+            List<KeyValue> result = get(get, false);
 
             if (result.size() < count) {
               // Nothing to delete
@@ -1198,9 +1248,11 @@ public class HRegion implements HeapSize { // , Writable{
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
     } finally {
+      if (coprocessorHost != null) {
+        familyMap = coprocessorHost.postDelete(familyMap);
+      }
       this.updatesLock.readLock().unlock();
-    }
-
+    }    
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
       requestFlush();
@@ -1261,6 +1313,7 @@ public class HRegion implements HeapSize { // , Writable{
 
       try {
         // All edits for the given row (across all column families) must happen atomically.
+        // Coprocessor interception happens in put(Map,boolean)
         put(put.getFamilyMap(), writeToWAL);
       } finally {
         if(lockid == null) releaseRowLock(lid);
@@ -1473,7 +1526,7 @@ public class HRegion implements HeapSize { // , Writable{
       Integer lid = getLock(lockId, get.getRow(), true);
       List<KeyValue> result = new ArrayList<KeyValue>();
       try {
-        result = get(get);
+        result = get(get, false);
 
         boolean matches = false;
         if (result.size() == 0 &&
@@ -1577,9 +1630,11 @@ public class HRegion implements HeapSize { // , Writable{
    * @praram now
    * @throws IOException
    */
-  private void put(final byte [] family, final List<KeyValue> edits)
+  private void put(byte [] family, List<KeyValue> edits)
   throws IOException {
-    Map<byte[], List<KeyValue>> familyMap = new HashMap<byte[], List<KeyValue>>();
+    Map<byte[], List<KeyValue>> familyMap;
+    familyMap = new HashMap<byte[], List<KeyValue>>();
+    
     familyMap.put(family, edits);
     this.put(familyMap, true);
   }
@@ -1591,11 +1646,16 @@ public class HRegion implements HeapSize { // , Writable{
    * @param writeToWAL if true, then we should write to the log
    * @throws IOException
    */
-  private void put(final Map<byte [], List<KeyValue>> familyMap,
-      boolean writeToWAL) throws IOException {
+  private void put(Map<byte [], List<KeyValue>> familyMap,
+    boolean writeToWAL) throws IOException {
     long now = EnvironmentEdgeManager.currentTimeMillis();
     byte[] byteNow = Bytes.toBytes(now);
     boolean flush = false;
+
+    if (coprocessorHost != null) {
+      familyMap = coprocessorHost.prePut(familyMap);
+    }
+
     this.updatesLock.readLock().lock();
     try {
       checkFamilies(familyMap.keySet());
@@ -1616,6 +1676,9 @@ public class HRegion implements HeapSize { // , Writable{
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
     } finally {
       this.updatesLock.readLock().unlock();
+    }
+    if (coprocessorHost != null) {
+      familyMap = coprocessorHost.postPut(familyMap);
     }
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
@@ -2040,7 +2103,7 @@ public class HRegion implements HeapSize { // , Writable{
    * Release the row lock!
    * @param lockid  The lock ID to release.
    */
-  void releaseRowLock(final Integer lockid) {
+  public void releaseRowLock(final Integer lockid) {
     synchronized (lockedRows) {
       byte[] row = lockIds.remove(lockid);
       lockedRows.remove(row);
@@ -2199,8 +2262,14 @@ public class HRegion implements HeapSize { // , Writable{
         ReadWriteConsistencyControl.setThreadReadPoint(this.readPt);
 
         results.clear();
+        if (coprocessorHost != null) {
+          results = coprocessorHost.preScannerNext(hashCode(), results);
+        }
         boolean returnResult = nextInternal(limit);
 
+        if (coprocessorHost != null) {
+          results = coprocessorHost.postScannerNext(hashCode(), results);
+        }
         outResults.addAll(results);
         resetFilters();
         if (isFilterDone()) {
@@ -2306,12 +2375,18 @@ public class HRegion implements HeapSize { // , Writable{
               currentRow, 0, currentRow.length) <= isScan);
     }
 
-    public synchronized void close() {
+    public synchronized void close() throws IOException {
+      if (coprocessorHost != null) {
+        coprocessorHost.preScannerClose(hashCode());
+      }
       if (storeHeap != null) {
         storeHeap.close();
         storeHeap = null;
       }
       this.filterClosed = true;
+      if (coprocessorHost != null) {
+        coprocessorHost.postScannerClose(hashCode());
+      }
     }
   }
 
@@ -2840,26 +2915,45 @@ public class HRegion implements HeapSize { // , Writable{
         get.addFamily(family);
       }
     }
-    List<KeyValue> result = get(get);
-
-    return new Result(result);
+    List<KeyValue> results =  new ArrayList<KeyValue>();    
+    results = get(get, true);
+    return new Result(results);
   }
 
   /*
    * Do a get based on the get parameter.
+   * @param withCoprocssor invoke coprocessor or not. We don't want to 
+   * always invoke cp for this private method. 
    */
-  private List<KeyValue> get(final Get get) throws IOException {
+  private List<KeyValue> get(final Get get, boolean withCoprocssor) 
+  throws IOException {
     Scan scan = new Scan(get);
 
-    List<KeyValue> results = new ArrayList<KeyValue>();
+    List<KeyValue> results = null;
+    List<KeyValue> getResults = new ArrayList<KeyValue>();
 
+    // pre-get CP hook
+    if ((coprocessorHost != null) && withCoprocssor) {
+      results = coprocessorHost.preGet(get, results);
+    }
     InternalScanner scanner = null;
     try {
       scanner = getScanner(scan);
-      scanner.next(results);
+      scanner.next(getResults);
     } finally {
       if (scanner != null)
         scanner.close();
+    }
+    // append get results to pre-get results
+    if (results != null){
+      results.addAll(getResults);
+    }
+    else {
+      results = getResults; 
+    }
+    // post-get CP hook
+    if ((coprocessorHost != null) && withCoprocssor) {
+      results = coprocessorHost.postGet(get, results);
     }
     return results;
   }
@@ -2891,7 +2985,8 @@ public class HRegion implements HeapSize { // , Writable{
         Get get = new Get(row);
         get.addColumn(family, qualifier);
 
-        List<KeyValue> results = get(get);
+        // we don't want to invoke xxGet coprocessor in this case(?)
+        List<KeyValue> results = get(get, false);
 
         if (!results.isEmpty()) {
           KeyValue kv = results.get(0);
@@ -2904,6 +2999,10 @@ public class HRegion implements HeapSize { // , Writable{
         KeyValue newKv = new KeyValue(row, family,
             qualifier, EnvironmentEdgeManager.currentTimeMillis(),
             Bytes.toBytes(result));
+        // pre-put hook
+        if (coprocessorHost != null) {
+          newKv = coprocessorHost.prePut(newKv);
+        }
 
         // now log it:
         if (writeToWAL) {
@@ -2921,6 +3020,9 @@ public class HRegion implements HeapSize { // , Writable{
 
         size = this.memstoreSize.addAndGet(size);
         flush = isFlushSize(size);
+        if (coprocessorHost != null) {
+          newKv = coprocessorHost.postPut(newKv);
+        }
       } finally {
         releaseRowLock(lid);
       }
@@ -2952,7 +3054,7 @@ public class HRegion implements HeapSize { // , Writable{
 
   public static final long FIXED_OVERHEAD = ClassSize.align(
       (4 * Bytes.SIZEOF_LONG) + Bytes.SIZEOF_BOOLEAN +
-      (18 * ClassSize.REFERENCE) + ClassSize.OBJECT + Bytes.SIZEOF_INT);
+      (19 * ClassSize.REFERENCE) + ClassSize.OBJECT + Bytes.SIZEOF_INT);
 
   public static final long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +
       ClassSize.OBJECT + (2 * ClassSize.ATOMIC_BOOLEAN) +
@@ -3149,6 +3251,11 @@ public class HRegion implements HeapSize { // , Writable{
       }
     }
     return false;
+  }
+
+  /** @return the coprocessor host */
+  public CoprocessorHost getCoprocessorHost() {
+    return coprocessorHost;
   }
 
   /**
