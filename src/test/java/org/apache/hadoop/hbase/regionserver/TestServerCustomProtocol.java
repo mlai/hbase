@@ -26,7 +26,6 @@ import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
-import org.apache.hadoop.ipc.VersionedProtocol;
 import org.junit.*;
 
 import static org.junit.Assert.*;
@@ -121,7 +120,7 @@ public class TestServerCustomProtocol {
   }
 
   @Test
-  public void testRowList() throws Exception {
+  public void testRowList() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     List<? extends Row> rows = Lists.newArrayList(
@@ -139,7 +138,7 @@ public class TestServerCustomProtocol {
   }
 
   @Test
-  public void testRowRange() throws Exception {
+  public void testRowRange() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     // test empty range
@@ -219,7 +218,7 @@ public class TestServerCustomProtocol {
   }
 
   @Test
-  public void testCompountCall() throws Exception {
+  public void testCompountCall() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     List<? extends Row> rows = Lists.newArrayList(
