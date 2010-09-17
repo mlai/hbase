@@ -267,7 +267,7 @@ public interface HConnection {
       final byte[] tableName,
       ExecutorService pool,
       final HTable.BatchCall<T,R> call,
-      final HTable.BatchCallback<R> callback) throws IOException;
+      final HTable.BatchCallback<R> callback) throws IOException, Throwable;
   /**
    * Process a batch of Puts. Does the retries.
    * @param list A batch of Puts to process.

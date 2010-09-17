@@ -1078,7 +1078,8 @@ public class HConnectionManager {
         final byte[] tableName,
         ExecutorService pool,
         final HTable.BatchCall<T,R> callable,
-        final HTable.BatchCallback<R> callback) throws IOException {
+        final HTable.BatchCallback<R> callback)
+      throws IOException, Throwable {
 
       Map<Row,Future<R>> futures = new HashMap<Row,Future<R>>();
       for (final Row r : list) {
@@ -1105,8 +1106,10 @@ public class HConnectionManager {
           e.getValue().get();
         } catch (ExecutionException ee) {
           LOG.warn("Error executing for row "+Bytes.toStringBinary(e.getKey().getRow()), ee);
+          throw ee.getCause();
         } catch (InterruptedException ie) {
-          LOG.warn("Interrupted executing for row "+Bytes.toStringBinary(e.getKey().getRow()), ie);          
+          Thread.currentThread().interrupt();
+          throw new IOException("Interrupted executing for row "+Bytes.toStringBinary(e.getKey().getRow()), ie);
         }
       }
     }

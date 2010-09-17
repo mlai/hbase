@@ -23,6 +23,7 @@ package org.apache.hadoop.hbase.ipc;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.DoNotRetryIOException;
 import org.apache.hadoop.hbase.client.RetriesExhaustedException;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.VersionedProtocol;
@@ -161,6 +162,26 @@ public class HBaseRPC {
      */
     public long getServerVersion() {
       return serverVersion;
+    }
+  }
+
+  /**
+   * An error requesting an RPC protocol that the server is not serving.
+   */
+  public static class UnknownProtocolException extends DoNotRetryIOException {
+    private Class<?> protocol;
+
+    public UnknownProtocolException(Class<?> protocol) {
+      this(protocol, "Server is not handling protocol "+protocol.getName());
+    }
+
+    public UnknownProtocolException(Class<?> protocol, String mesg) {
+      super(mesg);
+      this.protocol = protocol;
+    }
+
+    public Class getProtocol() {
+      return protocol;
     }
   }
 

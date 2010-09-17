@@ -1317,7 +1317,7 @@ public class HTable implements HTableInterface {
    */
   public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
       Class<T> protocol, List<? extends Row> rows, BatchCall<T,R> callable)
-      throws IOException {
+      throws IOException, Throwable {
 
     final Map<byte[],R> results = new TreeMap<byte[],R>(Bytes.BYTES_COMPARATOR);
     exec(protocol, rows, callable, new BatchCallback<R>(){
@@ -1343,7 +1343,7 @@ public class HTable implements HTableInterface {
   public <T extends CoprocessorProtocol, R> void exec(
       Class<T> protocol, List<? extends Row> rows,
       BatchCall<T,R> callable, BatchCallback<R> callback)
-      throws IOException {
+      throws IOException, Throwable {
     connection.processExecs(protocol, rows, tableName, pool, callable, callback);
   }
 
@@ -1361,7 +1361,7 @@ public class HTable implements HTableInterface {
    */
   public <T extends CoprocessorProtocol, R> Map<byte[],R> exec(
       Class<T> protocol, RowRange range, BatchCall<T,R> callable)
-      throws IOException {
+      throws IOException, Throwable {
 
     final Map<byte[],R> results = new TreeMap<byte[],R>(Bytes.BYTES_COMPARATOR);
     exec(protocol, range, callable, new BatchCallback<R>(){
@@ -1384,7 +1384,7 @@ public class HTable implements HTableInterface {
   public <T extends CoprocessorProtocol, R> void exec(
       Class<T> protocol, RowRange range,
       BatchCall<T,R> callable, BatchCallback<R> callback)
-      throws IOException {
+      throws IOException, Throwable {
 
     // get regions covered by the row range
     List<byte[]> keys = getRowKeysInRange(range);
