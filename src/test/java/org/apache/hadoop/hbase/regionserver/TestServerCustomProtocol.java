@@ -40,6 +40,7 @@ public class TestServerCustomProtocol {
   private static interface PingProtocol extends CoprocessorProtocol {
     public String ping();
     public String hello(String name);
+    public int hello2(int name);
   }
 
   /* Test protocol implementation */
@@ -57,6 +58,10 @@ public class TestServerCustomProtocol {
     @Override
     public long getProtocolVersion(String s, long l) throws IOException {
       return versionID;
+    }
+    
+    public int hello2(int a) {
+      return a;
     }
   }
 
@@ -118,6 +123,9 @@ public class TestServerCustomProtocol {
     assertEquals("Invalid custom protocol response", "pong", result);
     result = pinger.hello("George");
     assertEquals("Invalid custom protocol response", "Hello, George", result);
+    
+    int r2 = pinger.hello2(3);
+    assertEquals("Invalid custom protocol response", r2, 3);
   }
 
   @Test

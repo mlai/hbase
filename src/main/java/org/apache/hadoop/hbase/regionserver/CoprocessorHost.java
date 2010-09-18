@@ -26,11 +26,14 @@ import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
+import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
 import org.apache.hadoop.util.StringUtils;
@@ -344,7 +347,7 @@ public class CoprocessorHost {
       try {
         implClass = cl.loadClass(className);
         load(implClass, Coprocessor.Priority.SYSTEM);
-        LOG.info("System coprocessor -- " + className + " -- is loaded successfully.");
+        LOG.info("System coprocessor " + className + " was loaded successfully.");
       } catch (ClassNotFoundException e) {
         LOG.warn("Class " + className + " cannot be found. " + 
             e.getMessage());
@@ -428,8 +431,9 @@ public class CoprocessorHost {
       throws IOException {
     // create the instance
     Coprocessor impl;
+    Object o = null;
     try {
-      Object o = implClass.newInstance();
+      o = implClass.newInstance();
       impl = (Coprocessor)o;
     } catch (InstantiationException e) {
       throw new IOException(e);
@@ -438,6 +442,29 @@ public class CoprocessorHost {
     }
     // create the environment
     Environment env = new Environment(impl, priority);
+
+    // if it's a commandtarget: 
+    // due to current dynamic protocl design, commandtarget 
+    // uses a different way to be registered and executed.
+    // It uses a visitor pattern to invoke registered command
+    // targets.
+    // Here they don't need to be added to coprocessors set as other
+    // coprocessors.
+    for (Class c : implClass.getInterfaces()) {
+      if (CoprocessorProtocol.class.isAssignableFrom(c)) {
+        //region.registerProtocol(c, (CoprocessorProtocol)o);
+        region.registerProtocol(c, (CoprocessorProtocol)env.impl);
+        
+        // if it extends BaseCommandTarget, the env will be set here.
+        if (BaseCommandTarget.class.isAssignableFrom(c)) {
+          BaseCommandTarget bct = (BaseCommandTarget)impl;
+          bct.setEnvironment(env);
+        }
+        return;
+      }
+    }
+    
+    // or it's a non-commandtarget
     try {
       coprocessorLock.writeLock().lock();
       coprocessors.add(env);

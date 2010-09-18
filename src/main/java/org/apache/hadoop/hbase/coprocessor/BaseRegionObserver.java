@@ -26,10 +26,10 @@ import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 
 /**
- * Abstract class that implements Coprocessor and RegionObserver. 
+ * An abstract class that implements Coprocessor and RegionObserver. 
  * By extending it, you can create you own region observer without 
- * overriding too many abstract methods of Coprocessor and 
- * RegionObserver. 
+ * overriding all abstract methods of Coprocessor and 
+ * RegionObserver.
  */
 public abstract class BaseRegionObserver
 implements Coprocessor, RegionObserver {
