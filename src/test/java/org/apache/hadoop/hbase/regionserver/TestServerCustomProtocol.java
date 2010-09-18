@@ -38,14 +38,29 @@ public class TestServerCustomProtocol {
   /* Test protocol */
   private static interface PingProtocol extends CoprocessorProtocol {
     public String ping();
+    public int getPingCount();
+    public int incrementCount(int diff);
     public String hello(String name);
   }
 
   /* Test protocol implementation */
   private static class PingHandler implements PingProtocol, HBaseRPCProtocolVersion {
+    private int counter = 0;
     @Override
     public String ping() {
+      counter++;
       return "pong";
+    }
+
+    @Override
+    public int getPingCount() {
+      return counter;
+    }
+
+    @Override
+    public int incrementCount(int diff) {
+      counter += diff;
+      return counter;
     }
 
     @Override
@@ -117,6 +132,10 @@ public class TestServerCustomProtocol {
     assertEquals("Invalid custom protocol response", "pong", result);
     result = pinger.hello("George");
     assertEquals("Invalid custom protocol response", "Hello, George", result);
+    int cnt = pinger.getPingCount();
+    assertTrue("Count should be incremented", cnt > 0);
+    int newcnt = pinger.incrementCount(5);
+    assertEquals("Counter should have incremented by 5", cnt+5, newcnt);
   }
 
   @Test

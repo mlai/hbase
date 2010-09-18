@@ -3053,12 +3053,14 @@ public class HRegion implements HeapSize { // , Writable{
     }
 
     CoprocessorProtocol handler = protocolHandlers.getInstance(protocol);
-    Object value = null;
+    Object value;
+    Class<?> returnType;
 
     try {
       Method method = protocol.getMethod(
           call.getMethodName(), call.getParameterTypes());
       method.setAccessible(true);
+      returnType = method.getReturnType();
 
       value = method.invoke(handler, call.getParameters());
     } catch (InvocationTargetException e) {
@@ -3078,7 +3080,7 @@ public class HRegion implements HeapSize { // , Writable{
       throw ioe;
     }
 
-    return new ExecResult(getRegionName(), value);
+    return new ExecResult(getRegionName(), returnType, value);
   }
 
   /*
