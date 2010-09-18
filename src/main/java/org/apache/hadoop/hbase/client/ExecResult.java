@@ -34,13 +34,15 @@ import java.io.IOException;
  */
 public class ExecResult implements Writable {
   private byte[] regionName;
+  private Class<?> valueType;
   private Object value;
 
   public ExecResult() {
   }
 
-  public ExecResult(byte[] region, Object value) {
+  public ExecResult(byte[] region, Class<?> valueType, Object value) {
     this.regionName = region;
+    this.valueType = valueType;
     this.value = value;
   }
 
@@ -56,7 +58,7 @@ public class ExecResult implements Writable {
   public void write(DataOutput out) throws IOException {
     Bytes.writeByteArray(out, regionName);
     HbaseObjectWritable.writeObject(out, value,
-        (value != null ? value.getClass() : Writable.class), null);
+        (valueType != null ? valueType : Writable.class), null);
   }
 
   @Override

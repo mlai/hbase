@@ -65,23 +65,19 @@ public class ExecRPCInvoker implements InvocationHandler {
     }
 
     if (row != null) {
-      try {
-        final Exec exec = new Exec(conf, row.getRow(), protocol, method, args);
-        ServerCallable<ExecResult> callable =
-            new ServerCallable<ExecResult>(connection, table, row.getRow()) {
-              public ExecResult call() throws Exception {
-                return server.exec(location.getRegionInfo().getRegionName(),
-                    exec);
-              }
-            };
-        ExecResult result = connection.getRegionServerWithRetries(callable);
-        this.regionName = result.getRegionName();
-        LOG.debug("Result is region="+ Bytes.toStringBinary(regionName) +
-            ", value="+result.getValue());
-        return result.getValue();
-      } catch (IOException ioe) {
-        LOG.error("Error invoking "+method.getName(), ioe);
-      }
+      final Exec exec = new Exec(conf, row.getRow(), protocol, method, args);
+      ServerCallable<ExecResult> callable =
+          new ServerCallable<ExecResult>(connection, table, row.getRow()) {
+            public ExecResult call() throws Exception {
+              return server.exec(location.getRegionInfo().getRegionName(),
+                  exec);
+            }
+          };
+      ExecResult result = connection.getRegionServerWithRetries(callable);
+      this.regionName = result.getRegionName();
+      LOG.debug("Result is region="+ Bytes.toStringBinary(regionName) +
+          ", value="+result.getValue());
+      return result.getValue();
     }
 
     return null;

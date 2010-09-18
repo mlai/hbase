@@ -69,6 +69,7 @@ import org.apache.hadoop.hbase.filter.IncompatibleFilterException;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.io.hfile.BlockCache;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.HBaseRPC;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
@@ -3096,10 +3097,16 @@ public class HRegion implements HeapSize { // , Writable{
   /**
    * Registers a new CoprocessorProtocol subclass and instance to
    * be available for handling {@link HRegion#exec(Exec)} calls.
-   * @param protocol
-   * @param handler
-   * @param <T>
-   * @return
+   *
+   * <p>
+   * Only a single protocol type/handler combination may be registered per region.
+   * After the first registration, subsequent calls with the same protocol type
+   * will fail with a return value of {@code false}.
+   * </p>
+   * @param protocol a {@code CoprocessorProtocol} subinterface defining the protocol methods
+   * @param handler an instance implementing the interface
+   * @param <T> the protocol type
+   * @return {@code true} if the registration was successful, {@code false} otherwise
    */
   public <T extends CoprocessorProtocol> boolean registerProtocol(
       Class<T> protocol, T handler) {
@@ -3142,17 +3149,20 @@ public class HRegion implements HeapSize { // , Writable{
       throws IOException {
     Class<? extends CoprocessorProtocol> protocol = call.getProtocol();
     if (!protocolHandlers.containsKey(protocol)) {
-      throw new IOException("No matching handler for protocol "+
-          protocol.getName()+" in region "+Bytes.toStringBinary(getRegionName()));
+      throw new HBaseRPC.UnknownProtocolException(protocol,
+          "No matching handler for protocol "+protocol.getName()+
+          " in region "+Bytes.toStringBinary(getRegionName()));
     }
 
     CoprocessorProtocol handler = protocolHandlers.getInstance(protocol);
-    Object value = null;
+    Object value;
+    Class<?> returnType;
 
     try {
       Method method = protocol.getMethod(
           call.getMethodName(), call.getParameterTypes());
       method.setAccessible(true);
+      returnType = method.getReturnType();
 
       value = method.invoke(handler, call.getParameters());
     } catch (InvocationTargetException e) {
@@ -3172,7 +3182,7 @@ public class HRegion implements HeapSize { // , Writable{
       throw ioe;
     }
 
-    return new ExecResult(getRegionName(), value);
+    return new ExecResult(getRegionName(), returnType, value);
   }
 
   /*

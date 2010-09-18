@@ -295,8 +295,7 @@ class WritableRpcEngine implements RpcEngine {
           impl = this.instance;
         }
         else {
-          throw new IOException("No matching implementation for protocol "+
-              protocol.getName());
+          throw new HBaseRPC.UnknownProtocolException(protocol);
         }
 
         long startTime = System.currentTimeMillis();

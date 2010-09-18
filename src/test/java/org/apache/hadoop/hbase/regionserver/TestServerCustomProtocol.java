@@ -26,7 +26,6 @@ import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.JVMClusterUtil;
-import org.apache.hadoop.ipc.VersionedProtocol;
 import org.junit.*;
 
 import static org.junit.Assert.*;
@@ -39,15 +38,30 @@ public class TestServerCustomProtocol {
   /* Test protocol */
   private static interface PingProtocol extends CoprocessorProtocol {
     public String ping();
+    public int getPingCount();
+    public int incrementCount(int diff);
     public String hello(String name);
     public int hello2(int name);
   }
 
   /* Test protocol implementation */
   private static class PingHandler implements PingProtocol, HBaseRPCProtocolVersion {
+    private int counter = 0;
     @Override
     public String ping() {
+      counter++;
       return "pong";
+    }
+
+    @Override
+    public int getPingCount() {
+      return counter;
+    }
+
+    @Override
+    public int incrementCount(int diff) {
+      counter += diff;
+      return counter;
     }
 
     @Override
@@ -123,13 +137,14 @@ public class TestServerCustomProtocol {
     assertEquals("Invalid custom protocol response", "pong", result);
     result = pinger.hello("George");
     assertEquals("Invalid custom protocol response", "Hello, George", result);
-    
-    int r2 = pinger.hello2(3);
-    assertEquals("Invalid custom protocol response", r2, 3);
+    int cnt = pinger.getPingCount();
+    assertTrue("Count should be incremented", cnt > 0);
+    int newcnt = pinger.incrementCount(5);
+    assertEquals("Counter should have incremented by 5", cnt+5, newcnt);
   }
 
   @Test
-  public void testRowList() throws Exception {
+  public void testRowList() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     List<? extends Row> rows = Lists.newArrayList(
@@ -147,7 +162,7 @@ public class TestServerCustomProtocol {
   }
 
   @Test
-  public void testRowRange() throws Exception {
+  public void testRowRange() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     // test empty range
@@ -227,7 +242,7 @@ public class TestServerCustomProtocol {
   }
 
   @Test
-  public void testCompountCall() throws Exception {
+  public void testCompountCall() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     List<? extends Row> rows = Lists.newArrayList(
