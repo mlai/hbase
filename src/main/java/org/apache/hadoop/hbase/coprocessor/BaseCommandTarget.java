@@ -23,21 +23,23 @@ import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 
 /**
+ * CommandTarget base class. 
+ * Extend this class and implement related CoprocessorProtocol
+ * to implement actually class running at region server.
  */
 public abstract class BaseCommandTarget 
 implements Coprocessor, CoprocessorProtocol {
   private CoprocessorEnvironment env;
   
   /**
-   * constructor
-   * @param e coprocessor environment.
+   * @param e Coprocessor environment.
    */
   public void setEnvironment(CoprocessorEnvironment e) {
     env = e;
   }
   
   /**
-   * @return env
+   * @return env Coprocessor environment.
    */
   public CoprocessorEnvironment getEnvironment() {
     return env;

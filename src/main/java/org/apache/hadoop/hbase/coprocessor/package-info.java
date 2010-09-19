@@ -22,21 +22,38 @@
 <h2>Table of Contents</h2>
 <ul>
 <li><a href="#overview">Overview</a></li>
-<li><a href="#lifecycle">Lifecycle hooks</a></li>
-<li><a href="#regionobserver">Region observer</a></li>
+<li><a href="#coprocessor">Coprocessor</a></li>
+<li><a href="#regionobserver">RegionObserver</a></li>
+<li><a href="#commandtarget">CommandTarget</a></li>
+<li><a href="#load">Coprocessor loading</a></li>
 </ul>
 
- <h2><a name="overview">Overview</a></h2>
+<h2><a name="overview">Overview</a></h2>
 Coprocessors are code that runs in-process on each region server. Regions
 contain references to the coprocessor implementation classes associated
-with them. Coprocessor classes will be loaded either on demand or by 
-default by configuration. On demand loading can be from local
+with them. Coprocessor classes will be loaded either on demand or 
+by configuration. On demand loading can be from local
 jars on the region server's classpath or via the HDFS classloader.
 <p>
-While a coprocessor can have arbitrary function, it is required to
-implement this interface.
+Multiple types of coprocessors are provided to provide sufficient flexibility
+for potential use cases. Right now there are:
 <p>
-The design goal CommandTargetof this interface is to provide simple features for
+<ul>
+<li>Coprocessor: provides region lifecycle management hooks, e.g., region 
+open/close/split/flush/compact operations.</li>
+<li>RegionObserver: provides hook for monitor table operations from 
+client side, such as table get/put/scan/delete, etc.</li>
+<li>CommandTarget: provides on demand triggers for any arbitrary function
+executed at a region. One use case is column aggregation at region 
+server. </li>
+</ul>
+
+<h2><a name="coprocessor">Coprocessor</a></h2>
+A coprocessor is required to
+implement <code>Coprocessor</code> interface so that coprocessor framework 
+can manage it internally.
+<p>
+Another design goal of this interface is to provide simple features for
 making coprocessors useful, while exposing no more internal state or
 control actions of the region server than necessary and not exposing them
 directly.
@@ -51,15 +68,15 @@ unassigned -> pendingOpen -> open -> pendingClose -> closed.
 Coprocessors have opportunity to intercept and handle events in
 pendingOpen, open, and pendingClose states.
 <p>
-<h2><a name="lifecycle">Lifecycle hooks</a></h2>
+
 <h3>PendingOpen</h3>
 <p>
 The region server is opening a region to bring it online. Coprocessors
 can piggyback or fail this process.
 <p>
 <ul>
-  <li>preOpen, postOpen: Called before and the region is reported as online 
-  to the master.</li><p>
+  <li>preOpen, postOpen: Called before and after the region is reported as
+ online to the master.</li><p>
 </ul>
 <p>
 <h3>Open</h3>
@@ -82,13 +99,13 @@ problems. Coprocessors can piggyback this event. If the server is aborting
 an indication to this effect will be passed as an argument.
 <p>
 <ul>
-  <li>preClose and post Close: Called before and after the region is 
+  <li>preClose and postClose: Called before and after the region is 
   reported as closed to the master.</li><p>
 </ul>
 <p>
 
 <h2><a name="regionobserver">RegionObserver</a></h2>
-If the coprocessor implements the <tt>RegionObserver</tt> interface it can observe
+If the coprocessor implements the <code>RegionObserver</code> interface it can observe
 and mediate client actions on the region:
 <p>
 <ul>
@@ -100,13 +117,230 @@ and mediate client actions on the region:
   </li><p>
   <li>preDelete and postDelete: Called before and after the client 
   deletes a value.</li><p>
-  <li>preScannerOpenm postScannerOpen: Called before and after the client 
+  <li>preScannerOpen postScannerOpen: Called before and after the client 
   opens a new scanner.</li><p>
   <li>preScannerNext, postScannerNext: Called before and after the client 
   asks for the next row on a scanner.</li><p>
   <li>preScannerClose, postScannerClose: Called before and after the client 
   closes a scanner.</li><p>
 </ul>
+You can also extend abstract class <code>BaseRegionObserver</code> which
+implements both <code>Coprocessor</code> and <code>RegionObserver</code>. 
+In addition, it overrides all methods with default behaviors so you don't 
+have to override all of them.
+<p>
+Here's an example of what a simple RegionObserver might look like. This
+example shows how to implement role-based access control for HBase. This
+coprocessor checks user information for a given client request, e.g.,
+Get/Put/Delete/Scan by injecting code at certain
+<code>RegionObserver</code>
+preXXX hooks. If the user is not allowed to access the resource, a
+CoprocessorException will be thrown. And the client request will be
+denied by receiving this exception.
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+package org.apache.hadoop.hbase.coprocessor;
+
+import java.util.List;
+import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.client.Get;
+
+// Sample role-base-access-control coprocessor. It utilizes RegionObserver
+// and intercept preXXX() method to check user privilege for the given table
+// and column family.
+public class RBACCoprocessor extends BaseRegionObserver {
+  @Override
+  public List&lt;KeyValue&gt; preGet(CoprocessorEnvironment e, Get get, 
+      List&lt;KeyValue&gt; results)
+      throws CoprocessorException {
+    
+    // check permissions.. 
+    if (access_not_allowed)  {
+      throw new AccessDeniedException(&quot;User is not allowed to access.&quot;);
+    }
+    return results;
+  }
+
+  // override prePut(), preDelete(), etc.
+}
+</pre></blockquote>
+</div>
+
+<h2><a name="commandtarget">CommandTarget</a></h2>
+<code>Coprocessor</code> and <code>RegionObserver</code> provide certain hooks 
+for injecting user code running at each region. These code will be triggerd 
+with existing <code>HTable</code> and <code>HBaseAdmin</code> operations at 
+the certain hook points. 
+<p>
+Through CommandTarget and dynamic RPC protocol, you can define your own 
+interface communicated between client and region server,
+i.e., you can specify new passed parameters and return types for a 
+method.
+And the new CommandTarget methods can be triggered by
+calling client side dynamic RPC functions -- <code>HTable.exec(...)</code>.
+<p>
+To implement a CommandTarget, you need to:
+<ul>
+<li>Extend <code>CoprocessorProtocol</code>: the interface defines 
+communication protocol for the new CommandTarget, and will be 
+served as the RPC protocol between client and region server.</li>
+<li>Extend both <code>BaseCommandTarget</code> abstract class, 
+and the above extended <code>CoprocessorProtocol</code> interface: 
+the actually implemention class running at region server.</li>
+</ul>
+<p>
+Here's an example of performing column aggregation at region server:
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+// A sample protocol for performing aggregation at regions.
+public static interface ColumnAggregationProtocol 
+extends CoprocessorProtocol {
+  // Perform aggregation for a given column at the region. The aggregation 
+  // will include all the rows inside the region. It can be extended to
+  // allow passing start and end rows for a fine-grained aggregation.
+  public int sum(byte[] family, byte[] qualifier) throws IOException;
+}
+// Aggregation implementation at a region.
+public static class ColumnAggregationCommandTarget extends BaseCommandTarget 
+implements ColumnAggregationProtocol {
+  @Override
+  public int sum(byte[] family, byte[] qualifier) 
+  throws IOException {
+    // aggregate at each region
+    Scan scan = new Scan();
+    scan.addColumn(family, qualifier);
+    int sumResult = 0;    
+    InternalScanner scanner = getEnvironment().getRegion().getScanner(scan);
+    try {
+      List&lt;KeyValue&gt; curVals = new ArrayList&lt;KeyValue&gt;();
+      boolean done = false;
+      do {
+        curVals.clear();
+        done = scanner.next(curVals);
+        KeyValue kv = curVals.get(0);
+        sumResult += Bytes.toInt(kv.getValue());
+      } while (done);
+    } finally {
+      scanner.close();
+    }
+    return sumResult;
+  }
+}
+</pre></blockquote>
+</div>
+<p>
+Client invocations are performed through <code>HTable</code>, 
+which has the following methods added by dynamic RPC protocol:
+
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+public &lt;T extends CoprocessorProtocol&gt; T proxy(Class&lt;T&gt; protocol, Row row)
+
+public &lt;T extends CoprocessorProtocol, R&gt; void exec(
+    Class&lt;T&gt; protocol, List&lt;? extends Row&gt; rows,
+    BatchCall&lt;T,R&gt; callable, BatchCallback&lt;R&gt; callback)
+
+public &lt;T extends CoprocessorProtocol, R&gt; void exec(
+    Class&lt;T&gt; protocol, RowRange range,
+    BatchCall&lt;T,R&gt; callable, BatchCallback&lt;R&gt; callback)
+</pre></blockquote>
+</div>
+
+<p>
+How is the client side example of calling 
+<code>ColumnAggregationCommandTarget</code>:
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
+Scan scan;
+Map&lt;byte[], Integer&gt; results;
+
+// scan: for all regions
+scan = new Scan();
+results = table.exec(ColumnAggregationProtocol.class, scan,
+    new HTable.BatchCall&lt;ColumnAggregationProtocol,Integer&gt;() {
+      public Integer call(ColumnAggregationProtocol instance) throws IOException{
+        return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
+      }
+    });
+int sumResult = 0;
+int expectedResult = 0;
+for (Map.Entry&lt;byte[], Integer&gt; e : results.entrySet()) {
+  sumResult += e.getValue();
+}
+</pre></blockquote>
+</div>
+<h2><a name="load">Coprocess loading</a></h2>
+A customized coprocessor can be loaded by two different ways, by configuration, 
+or by <code>HTableDescriptor</code> for a newly created table.
+<p>
+(Currently we don't really have an on demand coprocessor loading machanism for
+opened regions.)
+<h3>Load from configuration</h3>
+Whenever a region is opened, it will read coprocessor class names from
+<code>hbase.coprocessor.default.classes</code> from <code>Configuration</code>.
+Coprocessor framework will automatically load the configured classes as
+default coprocessors. The classes must be included in the classpath already.
+
+<p>
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+  &lt;property&gt;
+    &lt;name&gt;hbase.coprocessor.default.classes&lt;/name&gt;
+    &lt;value&gt;org.apache.hadoop.hbase.coprocessor.RBACCoprocessor, org.apache.hadoop.hbase.coprocessor.ColumnAggregationProtocol&lt;/value&gt;
+    &lt;description&gt;A comma-separated list of Coprocessors that are loaded by
+    default. For any override coprocessor method, these classes will be called 
+    in order. After implement your own
+    Coprocessor, just put it in HBase's classpath and add the fully
+    qualified class name here. 
+    A coprocessor can also be loaded on demand by setting HTableDescriptor.
+    &lt;/description&gt;
+  &lt;/property&gt;
+</pre></blockquote>
+</div>
+
+<h3>Load jar from file system</h3>
+A coprocessor class can also be loaded from a jar file. The class
+information is configured at <code>HTableDescriptor</code> as a table
+attribute. The 
+attribute key starts with "Coprocessor" and values of the form is
+&lt;path&gt;:&lt;class&gt;:&lt;priority&gt;, e.g.
+<p>
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+&#39;Coprocessor$1&#39; =&gt; &#39;hdfs://localhost:8020/hbase/coprocessors/test.jar:Test:1000&#39;
+&#39;Coprocessor$2&#39; =&gt; &#39;/hbase/coprocessors/test2.jar:AnotherTest:1001&#39;
+</pre></blockquote>
+</div>
+<p>
+&lt;path&gt; must point to a jar, can be on any filesystem supported by the 
+Hadoop </code>FileSystem</code> object.
+<p>
+&lt;class&gt; is the coprocessor implementation class. A jar can contain 
+more than one coprocessor implementation, but only one can be specified 
+at a time in each table attribute.
+<p>
+&lt;priority&gt; is an integer. Coprocessors are executed in order according 
+to the natural ordering of the int. Coprocessors can optionally abort 
+actions. So typically one would want to put authoritative CPs (security 
+policy implementations, perhaps) ahead of observers. 
+<p>
+<div style="background-color: #cccccc; padding: 2px">
+<blockquote><pre>
+  Path path = new Path(fs.getUri() + Path.SEPARATOR +
+    "TestClassloading.jar");
+  
+  // create a table that references the jar
+  HTableDescriptor htd = new HTableDescriptor(getClass().getName());
+  htd.addFamily(new HColumnDescriptor("test"));
+  htd.setValue("Coprocessor$1",
+    path.toString() +
+    ":" + classFullName +
+    ":" + Coprocessor.Priority.USER);
+  HBaseAdmin admin = new HBaseAdmin(this.conf);
+  admin.createTable(htd);
+</pre></blockquote>
+</div>
 
 */
 package org.apache.hadoop.hbase.coprocessor;

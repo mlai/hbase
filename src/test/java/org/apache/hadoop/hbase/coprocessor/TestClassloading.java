@@ -49,6 +49,8 @@ public class TestClassloading extends HBaseClusterTestCase {
   // package org.apache.hadoop.hbase.coprocessor;
   // public class TestClassloading_Main extends BaseRegionObserver {
   // }
+  // TODO: generate the jar file at build process or compile it 
+  // by JavaCompiler.
   
   final static String encJar =
     "UEsDBBQACAAIAElOKT0AAAAAAAAAAAAAAAAJAAQATUVUQS1JTkYv/soAAAMAUEsHCAAAAAACAAAA"+

@@ -21,33 +21,80 @@ package org.apache.hadoop.hbase.coprocessor;
 
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.regionserver.InternalScanner;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.hbase.util.JVMClusterUtil;
 import org.junit.*;
-import org.mortbay.log.Log;
 
 import static org.junit.Assert.*;
 
-import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.io.IOException;
 
+/**
+ * TestCommandTarget: test cases to verify coprocessor CommandTarget
+ */
 public class TestCommandTarget {
-  /* Test protocol */
-  private static interface PingProtocol extends CoprocessorProtocol {
-    public String ping();
-    public String hello(String name);
+  /**
+   * A sample protocol for performing aggregation at regions.
+   */
+  public static interface ColumnAggregationProtocol 
+  extends CoprocessorProtocol {
+    /**
+     * Perform aggregation for a given column at the region. The aggregation 
+     * will include all the rows inside the region. It can be extended to
+     * allow passing start and end rows for a fine-grained aggregation.
+     * @param family family
+     * @param qualifier qualifier
+     * @return Aggregation of the column.
+     * @throws exception.
+     */
+    public int sum(byte[] family, byte[] qualifier) throws IOException;
+  }
+  /**
+   * The aggregation implementation at a region.
+   */
+  public static class ColumnAggregationCommandTarget extends BaseCommandTarget 
+  implements ColumnAggregationProtocol {
+
+    @Override
+    public int sum(byte[] family, byte[] qualifier) 
+    throws IOException {
+      // aggregate at each region
+      Scan scan = new Scan();
+      scan.addColumn(family, qualifier);
+      int sumResult = 0;
+      
+      InternalScanner scanner = getEnvironment().getRegion().getScanner(scan);
+      try {
+        List<KeyValue> curVals = new ArrayList<KeyValue>();
+        boolean done = false;
+        do {
+          curVals.clear();
+          done = scanner.next(curVals);
+          KeyValue kv = curVals.get(0);
+          sumResult += Bytes.toInt(kv.getValue());
+        } while (done);
+      } finally {
+        scanner.close();
+      }
+      return sumResult;
+    }
   }
 
-  private static final byte[] TEST_TABLE = Bytes.toBytes("test");
-  private static final byte[] TEST_FAMILY = Bytes.toBytes("f1");
-
-  private static final byte[] ROW_A = Bytes.toBytes("aaa");
-  private static final byte[] ROW_B = Bytes.toBytes("bbb");
-  private static final byte[] ROW_C = Bytes.toBytes("ccc");
-
-  private static final byte[] ROW_AB = Bytes.toBytes("abb");
-  private static final byte[] ROW_BC = Bytes.toBytes("bcc");
+  private static final byte[] TEST_TABLE = Bytes.toBytes("TestTable");
+  private static final byte[] TEST_FAMILY = Bytes.toBytes("TestFamily");
+  private static final byte[] TEST_QUALIFIER = Bytes.toBytes("TestQualifier");
+  private static byte [] ROW = Bytes.toBytes("testRow");
+  
+  private static final int ROWSIZE = 20;
+  private static final int rowSeperator1 = 5;
+  private static final int rowSeperator2 = 12;
+  private static byte [][] ROWS = makeN(ROW, ROWSIZE);
+  
 
   private static HBaseTestingUtility util = new HBaseTestingUtility();
   private static MiniHBaseCluster cluster = null;
@@ -58,20 +105,24 @@ public class TestCommandTarget {
     cluster = util.getMiniHBaseCluster();
     HTable table = util.createTable(TEST_TABLE, TEST_FAMILY);
     util.createMultiRegions(util.getConfiguration(), table, TEST_FAMILY,
-        new byte[][]{ HConstants.EMPTY_BYTE_ARRAY,
-            ROW_B, ROW_C});
+        new byte[][]{ HConstants.EMPTY_BYTE_ARRAY, ROWS[rowSeperator1], ROWS[rowSeperator2]});
+    
+    for(int i = 0; i < ROWSIZE; i++) {
+      Put put = new Put(ROWS[i]);
+      put.add(TEST_FAMILY, TEST_QUALIFIER, Bytes.toBytes(i));
+      table.put(put);
+    }
 
-    Put puta = new Put( ROW_A );
-    puta.add(TEST_FAMILY, Bytes.toBytes("col1"), Bytes.toBytes(1));
-    table.put(puta);
-
-    Put putb = new Put( ROW_B );
-    putb.add(TEST_FAMILY, Bytes.toBytes("col1"), Bytes.toBytes(1));
-    table.put(putb);
-
-    Put putc = new Put( ROW_C );
-    putc.add(TEST_FAMILY, Bytes.toBytes("col1"), Bytes.toBytes(1));
-    table.put(putc);
+    // sleep here is an ugly hack to allow region transitions to finish
+    Thread.sleep(5000);
+    for (JVMClusterUtil.RegionServerThread t : cluster.getRegionServerThreads()) {
+      for (HRegionInfo r : t.getRegionServer().getOnlineRegions()) {
+        t.getRegionServer().getOnlineRegion(r.getRegionName()).
+          getCoprocessorHost().
+          load(TestCommandTarget.ColumnAggregationCommandTarget.class, 
+              Coprocessor.Priority.USER);
+      }
+    }
   }
 
   @AfterClass
@@ -80,30 +131,55 @@ public class TestCommandTarget {
   }
 
   @Test
-  public void testSingleRegionAggregation() throws Exception {
-//    HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
-//
-//    SumProtocol sum = table.proxy(SumProtocol.class, 
-//        new Get(ROW_A));
-//    String result = sum.sum(ROW_A);
-//    Log.warn("---- get " + result);
+  public void testAggregation() throws Throwable {
+    HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
+    Scan scan;
+    Map<byte[], Integer> results;
+
+    // scan: for all regions
+    scan = new Scan(ROWS[rowSeperator1 - 3], ROWS[rowSeperator2  + 2]);
+    results = table.exec(ColumnAggregationProtocol.class, scan,
+        new HTable.BatchCall<ColumnAggregationProtocol,Integer>() {
+          public Integer call(ColumnAggregationProtocol instance) throws IOException{
+            return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
+          }
+        });
+    int sumResult = 0;
+    int expectedResult = 0;
+    for (Map.Entry<byte[], Integer> e : results.entrySet()) {
+      sumResult += e.getValue();
+    }
+    for(int i = 0;i < ROWSIZE; i++) {
+      expectedResult += i;
+    }
+    assertEquals("Invalid result", sumResult, expectedResult);
+    
+    results.clear(); 
+    
+    // scan: for region 2 and region 3
+    scan = new Scan(ROWS[rowSeperator1 + 1], ROWS[rowSeperator2  + 2]);
+    results = table.exec(ColumnAggregationProtocol.class, scan,
+        new HTable.BatchCall<ColumnAggregationProtocol,Integer>() {
+          public Integer call(ColumnAggregationProtocol instance) throws IOException{
+            return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
+          }
+        });
+    sumResult = 0;
+    expectedResult = 0;
+    for (Map.Entry<byte[], Integer> e : results.entrySet()) {
+      sumResult += e.getValue();
+    }
+    for(int i = rowSeperator1;i < ROWSIZE; i++) {
+      expectedResult += i;
+    }
+    assertEquals("Invalid result", sumResult, expectedResult);
   }
 
-
-  
-  private void verifyRegionResults(HTable table,
-      Map<byte[],String> results, byte[] row) throws Exception {
-    verifyRegionResults(table, results, "pong", row);
-  }
-
-  private void verifyRegionResults(HTable table,
-      Map<byte[],String> results, String expected, byte[] row) throws Exception {
-    HRegionLocation loc = table.getRegionLocation(row);
-    byte[] region = loc.getRegionInfo().getRegionName();
-    assertNotNull("Results should contain region " +
-        Bytes.toStringBinary(region)+" for row '"+Bytes.toStringBinary(row)+"'",
-        results.get(region));
-    assertEquals("Invalid result for row '"+Bytes.toStringBinary(row)+"'",
-        expected, results.get(region));
+  private static byte [][] makeN(byte [] base, int n) {
+    byte [][] ret = new byte[n][];
+    for(int i=0;i<n;i++) {
+      ret[i] = Bytes.add(base, Bytes.toBytes(String.format("%02d", i)));
+    }
+    return ret;
   }
 }

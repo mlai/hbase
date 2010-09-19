@@ -32,7 +32,6 @@ import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
-import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
@@ -443,28 +442,23 @@ public class CoprocessorHost {
     // create the environment
     Environment env = new Environment(impl, priority);
 
-    // if it's a commandtarget: 
-    // due to current dynamic protocl design, commandtarget 
+    // Check if it's a commandtarget.
+    // Due to current dynamic protocol design, commandtarget 
     // uses a different way to be registered and executed.
     // It uses a visitor pattern to invoke registered command
     // targets.
-    // Here they don't need to be added to coprocessors set as other
-    // coprocessors.
     for (Class c : implClass.getInterfaces()) {
       if (CoprocessorProtocol.class.isAssignableFrom(c)) {
-        //region.registerProtocol(c, (CoprocessorProtocol)o);
-        region.registerProtocol(c, (CoprocessorProtocol)env.impl);
+        region.registerProtocol(c, (CoprocessorProtocol)o);
         
         // if it extends BaseCommandTarget, the env will be set here.
-        if (BaseCommandTarget.class.isAssignableFrom(c)) {
+        if (BaseCommandTarget.class.isInstance(impl)) {
           BaseCommandTarget bct = (BaseCommandTarget)impl;
           bct.setEnvironment(env);
         }
-        return;
+        break;
       }
     }
-    
-    // or it's a non-commandtarget
     try {
       coprocessorLock.writeLock().lock();
       coprocessors.add(env);

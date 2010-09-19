@@ -29,7 +29,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HBaseTestCase;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
@@ -44,8 +43,11 @@ import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.junit.Test;
 
-public class TestRegionObserverInterface extends HBaseTestCase {
+import static org.junit.Assert.*;
+
+public class TestRegionObserverInterface {
   static final Log LOG = LogFactory.getLog(TestRegionObserverInterface.class);
   static final String DIR = "test/build/data/TestRegionObserver/";
 
@@ -75,6 +77,8 @@ public class TestRegionObserverInterface extends HBaseTestCase {
       // is there a way to test this hook?
       LOG.info("preGet: get=" + get);
       hadPreGet = true;
+      assertNotNull(e);
+      assertNotNull(e.getRegion());
       return null;
     }
 
@@ -256,6 +260,7 @@ public class TestRegionObserverInterface extends HBaseTestCase {
     return r;
   }
 
+  @Test
   public void testRegionObserver() throws IOException {
     byte[] TABLE = Bytes.toBytes(getClass().getName());
     byte[][] FAMILIES = new byte[][] { A, B, C } ;
