@@ -31,8 +31,7 @@
 <h2><a name="overview">Overview</a></h2>
 Coprocessors are code that runs in-process on each region server. Regions
 contain references to the coprocessor implementation classes associated
-with them. Coprocessor classes will be loaded either on demand or 
-by configuration. On demand loading can be from local
+with them. Coprocessor classes can be loaded either from local
 jars on the region server's classpath or via the HDFS classloader.
 <p>
 Multiple types of coprocessors are provided to provide sufficient flexibility
