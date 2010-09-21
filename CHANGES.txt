@@ -526,6 +526,12 @@ Release 0.21.0 - Unreleased
    HBASE-3006  Reading compressed HFile blocks causes way too many DFS RPC
                calls severly impacting performance
                (Kannan Muthukkaruppan via Stack)
+   HBASE-3010  Can't start/stop/start... cluster using new master
+   HBASE-3015  recovered.edits files not deleted if it only contain edits that
+               have already been flushed; hurts perf for all future opens of
+               the region
+   HBASE-3018  Bulk assignment on startup runs serially through the cluster
+               servers assigning in bulk to one at a time
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -915,6 +921,7 @@ Release 0.21.0 - Unreleased
    HBASE-2988  Support alternate compression for major compactions
    HBASE-2941  port HADOOP-6713 - threading scalability for RPC reads - to HBase
    HBASE-2782  QOS for META table access
+   HBASE-3017  More log pruning
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -962,6 +969,7 @@ Release 0.21.0 - Unreleased
    HBASE-2862  Name DFSClient for Improved Debugging
                (Nicolas Spiegelberg via Stack)
    HBASE-2838  Replication metrics
+   HBASE-3000  Add "hbase classpath" command to dump classpath
 
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite
