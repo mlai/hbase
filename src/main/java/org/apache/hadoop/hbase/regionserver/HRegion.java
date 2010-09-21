@@ -290,10 +290,6 @@ public class HRegion implements HeapSize { // , Writable{
         10 * 1000);
     String encodedNameStr = this.regionInfo.getEncodedName();
     this.regiondir = getRegionDir(this.tableDir, encodedNameStr);
-    if (LOG.isDebugEnabled()) {
-      // Write out region name as string and its encoded name.
-      LOG.debug("Creating region " + this);
-    }
     long flushSize = regionInfo.getTableDesc().getMemStoreFlushSize();
     if (flushSize == HTableDescriptor.DEFAULT_MEMSTORE_FLUSH_SIZE) {
       flushSize = conf.getLong("hbase.hregion.memstore.flush.size",
@@ -302,6 +298,10 @@ public class HRegion implements HeapSize { // , Writable{
     this.memstoreFlushSize = flushSize;
     this.blockingMemStoreSize = this.memstoreFlushSize *
       conf.getLong("hbase.hregion.memstore.block.multiplier", 2);
+    if (LOG.isDebugEnabled()) {
+      // Write out region name as string and its encoded name.
+      LOG.debug("Instantiated " + this);
+    }
   }
 
   /**
@@ -861,7 +861,7 @@ public class HRegion implements HeapSize { // , Writable{
     }
     if (LOG.isDebugEnabled()) {
       LOG.debug("Started memstore flush for region " + this +
-        ". Current region memstore size " +
+        "; current region memstore size " +
         StringUtils.humanReadableInt(this.memstoreSize.get()) +
         ((wal != null)? "": "; wal is null, using passed sequenceid=" + myseqid));
     }
@@ -1770,12 +1770,13 @@ public class HRegion implements HeapSize { // , Writable{
     if (seqid > minSeqId) {
       // Then we added some edits to memory. Flush and cleanup split edit files.
       internalFlushcache(null, seqid);
-      for (Path file: files) {
-        if (!this.fs.delete(file, false)) {
-          LOG.error("Failed delete of " + file);
-        } else {
-          LOG.debug("Deleted recovered.edits file=" + file);
-        }
+    }
+    // Now delete the content of recovered edits.  We're done w/ them.
+    for (Path file: files) {
+      if (!this.fs.delete(file, false)) {
+        LOG.error("Failed delete of " + file);
+      } else {
+        LOG.debug("Deleted recovered.edits file=" + file);
       }
     }
     return seqid;
