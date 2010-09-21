@@ -1,4 +1,6 @@
-/**
+/*
+ * Copyright 2010 The Apache Software Foundation
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -40,12 +42,15 @@ interface RpcEngine {
 
   /** Expert: Make multiple, parallel calls to a set of servers. */
   Object[] call(Method method, Object[][] params, InetSocketAddress[] addrs,
+                Class<? extends VersionedProtocol> protocol,
                 UserGroupInformation ticket, Configuration conf)
     throws IOException, InterruptedException;
 
   /** Construct a server for a protocol implementation instance. */
-  RpcServer getServer(Class<? extends VersionedProtocol> protocol, Object instance, String bindAddress,
-                       int port, int numHandlers, boolean verbose,
-                       Configuration conf) throws IOException;
+  RpcServer getServer(Class<? extends VersionedProtocol> protocol, Object instance,
+                       Class<?>[] ifaces, String bindAddress,
+                       int port, int numHandlers, int metaHandlerCount,
+                       boolean verbose, Configuration conf, int highPriorityLevel)
+      throws IOException;
 
 }

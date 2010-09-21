@@ -27,6 +27,10 @@ Release 0.21.0 - Unreleased
    HBASE-2771  Update our hadoop jar to be latest from 0.20-append branch
    HBASE-2803  Remove remaining Get code from Store.java,etc
    HBASE-2553  Revisit IncrementColumnValue implementation in 0.22
+   HBASE-2692  Master rewrite and cleanup for 0.90
+               (Karthik Ranganathan, Jon Gray & Stack)
+   HBASE-2961  Close zookeeper when done with it (HCM, Master, and RS)
+               
 
   BUG FIXES
    HBASE-1791  Timeout in IndexRecordWriter (Bradford Stephens via Andrew
@@ -479,6 +483,49 @@ Release 0.21.0 - Unreleased
    HBASE-2919  initTableReducerJob: Unused method parameter
                (Libor Dener via Stack)
    HBASE-2923  Deadlock between HRegion.internalFlushCache and close
+   HBASE-2927  BaseScanner gets stale HRegionInfo in some race cases
+   HBASE-2928  Fault in logic in BinaryPrefixComparator leads to
+               ArrayIndexOutOfBoundsException (pranav via jgray)
+   HBASE-2924  TestLogRolling doesn't use the right HLog half the time
+   HBASE-2931  Do not throw RuntimeExceptions in RPC/HbaseObjectWritable
+               code, ensure we log and rethrow as IOE
+               (Karthik Ranganathan via Stack)
+   HBASE-2915  Deadlock between HRegion.ICV and HRegion.close
+   HBASE-2920  HTable.checkAndPut/Delete doesn't handle null values
+   HBASE-2944  cannot alter bloomfilter setting for a column family from
+               hbase shell (Kannan via jgray)
+   HBASE-2948  bin/hbase shell broken (after hbase-2692)
+               (Sebastian Bauer via Stack)
+   HBASE-2954  Fix broken build caused by hbase-2692 commit
+   HBASE-2918  SequenceFileLogWriter doesnt make it clear if there is no
+               append by config or by missing lib/feature
+   HBASE-2799  "Append not enabled" warning should not show if hbase
+               root dir isn't on DFS
+   HBASE-2943  major_compact (and other admin commands) broken for .META.
+   HBASE-2643  Figure how to deal with eof splitting logs
+               (Nicolas Spiegelberg via Stack)
+   HBASE-2925  LRU of HConnectionManager.HBASE_INSTANCES breaks if
+               HBaseConfiguration is changed
+               (Robert Mahfoud via Stack)
+   HBASE-2964  Deadlock when RS tries to RPC to itself inside SplitTransaction
+   HBASE-1485  Wrong or indeterminate behavior when there are duplicate
+               versions of a column (pranav via jgray)
+   HBASE-2967  Failed split: IOE 'File is Corrupt!' -- sync length not being
+               written out to SequenceFile
+   HBASE-2969  missing sync in HTablePool.getTable()
+               (Guilherme Mauro Germoglio Barbosa via Stack)
+   HBASE-2973  NPE in LogCleaner
+   HBASE-2974  LoadBalancer ArithmeticException: / by zero
+   HBASE-2975  DFSClient names in master and RS should be unique
+   HBASE-2978  LoadBalancer IndexOutOfBoundsException
+   HBASE-2983  TestHLog unit test is mis-comparing an assertion
+               (Alex Newman via Todd Lipcon)
+   HBASE-2986  multi writable can npe causing client hang
+   HBASE-2979  Fix failing TestMultParrallel in hudson build
+   HBASE-2899  hfile.min.blocksize.size ignored/documentation wrong
+   HBASE-3006  Reading compressed HFile blocks causes way too many DFS RPC
+               calls severly impacting performance
+               (Kannan Muthukkaruppan via Stack)
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -844,6 +891,30 @@ Release 0.21.0 - Unreleased
    HBASE-1517  Implement inexpensive seek operations in HFile (Pranav via Ryan)
    HBASE-2903  ColumnPrefix filtering (Pranav via Ryan)
    HBASE-2904  Smart seeking using filters (Pranav via Ryan)
+   HBASE-2922  HLog preparation and cleanup are done under the updateLock, 
+               major slowdown
+   HBASE-1845  MultiGet, MultiDelete, and MultiPut - batched to the 
+               appropriate region servers (Marc Limotte via Ryan)
+   HBASE-2867  Have master show its address using hostname rather than IP
+   HBASE-2696  ZooKeeper cleanup and refactor
+   HBASE-2695  HMaster cleanup and refactor
+   HBASE-2692  Open daughters immediately on parent's regionserver
+   HBASE-2405  Close, split, open of regions in RegionServer are run by a single
+               thread only.
+   HBASE-1676  load balancing on a large cluster doesn't work very well
+   HBASE-2953  Edit of hbase-default.xml removing stale configs.
+   HBASE-2857  HBaseAdmin.tableExists() should not require a full meta scan
+   HBASE-2962  Add missing methods to HTableInterface (and HTable)
+               (Lars Francke via Stack)
+   HBASE-2942  Custom filters should not require registration in 
+               HBaseObjectWritable (Gary Helmling via Andrew Purtell)
+   HBASE-2976  Running HFile tool passing fully-qualified filename I get
+               'IllegalArgumentException: Wrong FS'
+   HBASE-2977  Refactor master command line to a new class
+   HBASE-2980  Refactor region server command line to a new class
+   HBASE-2988  Support alternate compression for major compactions
+   HBASE-2941  port HADOOP-6713 - threading scalability for RPC reads - to HBase
+   HBASE-2782  QOS for META table access
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -895,6 +966,7 @@ Release 0.21.0 - Unreleased
   OPTIMIZATIONS
    HBASE-410   [testing] Speed up the test suite
    HBASE-2041  Change WAL default configuration values
+   HBASE-2997  Performance fixes - profiler driven
 
 
 Release 0.20.0 - Tue Sep  8 12:53:05 PDT 2009

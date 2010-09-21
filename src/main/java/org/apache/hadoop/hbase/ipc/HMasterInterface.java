@@ -19,14 +19,13 @@
  */
 package org.apache.hadoop.hbase.ipc;
 
+import java.io.IOException;
+
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.HColumnDescriptor;
-import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.hbase.UnknownRegionException;
 import org.apache.hadoop.security.KerberosInfo;
-
-import java.io.IOException;
 
 /**
  * Clients interact with the HMasterInterface to gain access to meta-level
@@ -76,12 +75,10 @@ public interface HMasterInterface extends HBaseRPCProtocolVersion {
   /**
    * Modifies an existing column on the specified table
    * @param tableName table name
-   * @param columnName name of the column to edit
    * @param descriptor new column descriptor
    * @throws IOException e
    */
-  public void modifyColumn(final byte [] tableName, final byte [] columnName,
-    HColumnDescriptor descriptor)
+  public void modifyColumn(final byte [] tableName, HColumnDescriptor descriptor)
   throws IOException;
 
 
@@ -113,12 +110,11 @@ public interface HMasterInterface extends HBaseRPCProtocolVersion {
    * Modify a table's metadata
    *
    * @param tableName table to modify
-   * @param op the operation to do
-   * @param args arguments for operation
+   * @param htd new descriptor for table
    * @throws IOException e
    */
-  public void modifyTable(byte[] tableName, HConstants.Modify op, Writable[] args)
-    throws IOException;
+  public void modifyTable(byte[] tableName, HTableDescriptor htd)
+  throws IOException;
 
   /**
    * Shutdown an HBase cluster.
@@ -127,8 +123,32 @@ public interface HMasterInterface extends HBaseRPCProtocolVersion {
   public void shutdown() throws IOException;
 
   /**
+   * Stop HBase Master only.
+   * Does not shutdown the cluster.
+   * @throws IOException e
+   */
+  public void stopMaster() throws IOException;
+
+  /**
    * Return cluster status.
    * @return status object
    */
   public ClusterStatus getClusterStatus();
+
+
+  /**
+   * Move the region <code>r</code> to <code>dest</code>.
+   * @param encodedRegionName The encoded region name.
+   * @param destServerName The servername of the destination regionserver
+   * @throws UnknownRegionException Thrown if we can't find a region named
+   * <code>encodedRegionName</code>
+   */
+  public void move(final byte [] encodedRegionName, final byte [] destServerName)
+  throws UnknownRegionException;
+
+  /**
+   * @param b If true, enable balancer. If false, disable balancer.
+   * @return Previous balancer value
+   */
+  public boolean balance(final boolean b);
 }

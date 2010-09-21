@@ -1,4 +1,6 @@
-/**
+/*
+ * Copyright 2010 The Apache Software Foundation
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -50,77 +52,6 @@ import org.apache.hadoop.metrics.util.MetricsTimeVaryingRate;
 /** An RpcEngine implementation for Writable data. */
 class WritableRpcEngine implements RpcEngine {
   private static final Log LOG = LogFactory.getLog(HBaseRPC.class);
-
-  /** A method invocation, including the method name and its parameters.*/
-  private static class Invocation implements Writable, Configurable {
-    private String methodName;
-    @SuppressWarnings("unchecked")
-    private Class[] parameterClasses;
-    private Object[] parameters;
-    private Configuration conf;
-
-    public Invocation() {}
-
-    public Invocation(Method method, Object[] parameters) {
-      this.methodName = method.getName();
-      this.parameterClasses = method.getParameterTypes();
-      this.parameters = parameters;
-    }
-
-    /** @return The name of the method invoked. */
-    public String getMethodName() { return methodName; }
-
-    /** @return The parameter classes. */
-    @SuppressWarnings("unchecked")
-    public Class[] getParameterClasses() { return parameterClasses; }
-
-    /** @return The parameter instances. */
-    public Object[] getParameters() { return parameters; }
-
-    public void readFields(DataInput in) throws IOException {
-      methodName = in.readUTF();
-      parameters = new Object[in.readInt()];
-      parameterClasses = new Class[parameters.length];
-      HbaseObjectWritable objectWritable = new HbaseObjectWritable();
-      for (int i = 0; i < parameters.length; i++) {
-        parameters[i] = HbaseObjectWritable.readObject(in, objectWritable,
-          this.conf);
-        parameterClasses[i] = objectWritable.getDeclaredClass();
-      }
-    }
-
-    public void write(DataOutput out) throws IOException {
-      out.writeUTF(this.methodName);
-      out.writeInt(parameterClasses.length);
-      for (int i = 0; i < parameterClasses.length; i++) {
-        HbaseObjectWritable.writeObject(out, parameters[i], parameterClasses[i],
-                                   conf);
-      }
-    }
-
-    @Override
-    public String toString() {
-      StringBuilder buffer = new StringBuilder(256);
-      buffer.append(methodName);
-      buffer.append("(");
-      for (int i = 0; i < parameters.length; i++) {
-        if (i != 0)
-          buffer.append(", ");
-        buffer.append(parameters[i]);
-      }
-      buffer.append(")");
-      return buffer.toString();
-    }
-
-    public void setConf(Configuration conf) {
-      this.conf = conf;
-    }
-
-    public Configuration getConf() {
-      return this.conf;
-    }
-
-  }
 
   /* Cache a client using its socket factory as the hash key */
   static private class ClientCache {
@@ -265,7 +196,8 @@ class WritableRpcEngine implements RpcEngine {
   
   /** Expert: Make multiple, parallel calls to a set of servers. */
   public Object[] call(Method method, Object[][] params,
-                       InetSocketAddress[] addrs, 
+                       InetSocketAddress[] addrs,
+                       Class<? extends VersionedProtocol> protocol,
                        UserGroupInformation ticket, Configuration conf)
     throws IOException, InterruptedException {
 
@@ -274,9 +206,9 @@ class WritableRpcEngine implements RpcEngine {
       invocations[i] = new Invocation(method, params[i]);
     HBaseClient client = CLIENTS.getClient(conf);
     try {
-    Writable[] wrappedValues = 
-      client.call(invocations, addrs, (Class)method.getDeclaringClass(), ticket);
-    
+    Writable[] wrappedValues =
+      client.call(invocations, addrs, protocol, ticket);
+
     if (method.getReturnType() == Void.TYPE) {
       return null;
     }
@@ -295,32 +227,24 @@ class WritableRpcEngine implements RpcEngine {
 
   /** Construct a server for a protocol implementation instance listening on a
    * port and address. */
-  public RpcServer getServer(Class protocol,
-                          Object instance, String bindAddress, int port,
-                          int numHandlers, boolean verbose, Configuration conf) 
+  public Server getServer(Class<? extends VersionedProtocol> protocol,
+                          Object instance,
+                          Class<?>[] ifaces,
+                          String bindAddress, int port,
+                          int numHandlers,
+                          int metaHandlerCount, boolean verbose, Configuration conf, int highPriorityLevel)
     throws IOException {
-    return new Server(instance, conf, bindAddress, port, numHandlers, verbose);
+    return new Server(instance, ifaces, conf, bindAddress, port, numHandlers, metaHandlerCount, verbose, highPriorityLevel);
   }
 
   /** An RPC Server. */
   public static class Server extends HBaseServer {
     private Object instance;
     private Class<?> implementation;
+    private Class<?>[] ifaces;
     private boolean verbose;
     private boolean authorize = false;
 
-    /** Construct an RPC server.
-     * @param instance the instance whose methods will be called
-     * @param conf the configuration to use
-     * @param bindAddress the address to bind on to listen for connection
-     * @param port the port to listen for connections on
-     * @throws IOException e
-     */
-    public Server(Object instance, Configuration conf, String bindAddress, int port) 
-      throws IOException {
-      this(instance, conf,  bindAddress, port, 1, false);
-    }
-    
     private static String classNameBase(String className) {
       String[] names = className.split("\\.", -1);
       if (names == null || names.length == 0) {
@@ -338,17 +262,25 @@ class WritableRpcEngine implements RpcEngine {
      * @param verbose whether each call should be logged
      * @throws IOException e
      */
-    public Server(Object instance, Configuration conf, String bindAddress,  int port,
-                  int numHandlers, boolean verbose) throws IOException {
-      super(bindAddress, port, Invocation.class, numHandlers, conf, classNameBase(instance.getClass().getName()));
+    public Server(Object instance, final Class<?>[] ifaces,
+                  Configuration conf, String bindAddress,  int port,
+                  int numHandlers, int metaHandlerCount, boolean verbose, int highPriorityLevel) throws IOException {
+      super(bindAddress, port, Invocation.class, numHandlers, metaHandlerCount, conf, classNameBase(instance.getClass().getName()), highPriorityLevel);
       this.instance = instance;
       this.implementation = instance.getClass();
       this.verbose = verbose;
-      this.authorize = 
-        conf.getBoolean(ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG, 
+
+      this.ifaces = ifaces;
+
+      // create metrics for the advertised interfaces this server implements.
+      this.rpcMetrics.createMetrics(this.ifaces);
+
+      this.authorize =
+        conf.getBoolean(ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG,
                         false);
     }
 
+    @Override
     public Writable call(Class<? extends VersionedProtocol> protocol,
         Writable param, long receivedTime) 
     throws IOException {
@@ -365,8 +297,16 @@ class WritableRpcEngine implements RpcEngine {
                                    call.getParameterClasses());
         method.setAccessible(true);
 
+        Object impl = null;
+        if (protocol.isAssignableFrom(this.implementation)) {
+          impl = this.instance;
+        }
+        else {
+          throw new HBaseRPC.UnknownProtocolException(protocol);
+        }
+
         long startTime = System.currentTimeMillis();
-        Object value = method.invoke(instance, call.getParameters());
+        Object value = method.invoke(impl, call.getParameters());
         int processingTime = (int) (System.currentTimeMillis() - startTime);
         int qTime = (int) (startTime-receivedTime);
         if (LOG.isDebugEnabled()) {
@@ -398,23 +338,6 @@ class WritableRpcEngine implements RpcEngine {
         throw ioe;
       }
     }
-
-    /*
-    @Override
-    public void authorize(Subject user, ConnectionHeader connection) 
-    throws AuthorizationException {
-      if (authorize) {
-        Class<? extends VersionedProtocol> protocol = null;
-        try {
-          protocol = getProtocolClass(connection.getProtocol(), getConf());
-        } catch (ClassNotFoundException cfne) {
-          throw new AuthorizationException("Unknown protocol: " + 
-                                           connection.getProtocol());
-        }
-        ServiceAuthorizationManager.authorize(user, protocol);
-      }
-    }
-    */
   }
 
   protected static void log(String value) {

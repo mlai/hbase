@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 #/**
-# * Copyright 2010 The Apache Software Foundation
+# * Copyright 2007 The Apache Software Foundation
 # *
 # * Licensed to the Apache Software Foundation (ASF) under one
 # * or more contributor license agreements.  See the NOTICE file
@@ -19,7 +19,7 @@
 # * See the License for the specific language governing permissions and
 # * limitations under the License.
 # */
-#
+# 
 # Run a shell command on all regionserver hosts.
 #
 # Environment Variables
@@ -29,7 +29,7 @@
 #   HADOOP_CONF_DIR  Alternate conf dir. Default is ${HADOOP_HOME}/conf.
 #   HBASE_CONF_DIR  Alternate hbase conf dir. Default is ${HBASE_HOME}/conf.
 #   HADOOP_SLAVE_SLEEP Seconds to sleep between spawning remote commands.
-#   HADOOP_SLAVE_TIMEOUT Seconds to wait for timing out a remote command.
+#   HADOOP_SLAVE_TIMEOUT Seconds to wait for timing out a remote command. 
 #   HADOOP_SSH_OPTS Options passed to ssh when running remote commands.
 #
 # Modelled after $HADOOP_HOME/bin/slaves.sh.
@@ -49,7 +49,7 @@ then
 fi
 
 # quick function to get a value from the HBase config file
-distMode=`$bin/hbase org.apache.hadoop.hbase.HBaseConfTool hbase.cluster.distributed`
+distMode=`$bin/hbase org.apache.hadoop.hbase.util.HBaseConfTool hbase.cluster.distributed`
 if [ "$distMode" == 'false' ]; then
   "$bin"/hbase-daemon.sh restart master
 else 
@@ -59,9 +59,9 @@ else
     --hosts "${HBASE_BACKUP_MASTERS}" stop master-backup
 
   # make sure the master znode has been deleted before continuing
-  zparent=`$bin/hbase org.apache.hadoop.hbase.HBaseConfTool zookeeper.znode.parent`
+  zparent=`$bin/hbase org.apache.hadoop.hbase.util.HBaseConfTool zookeeper.znode.parent`
   if [ "$zparent" == "null" ]; then zparent="/hbase"; fi
-  zmaster=`$bin/hbase org.apache.hadoop.hbase.HBaseConfTool zookeeper.znode.master`
+  zmaster=`$bin/hbase org.apache.hadoop.hbase.util.HBaseConfTool zookeeper.znode.master`
   if [ "$zmaster" == "null" ]; then zmaster="master"; fi
   zmaster=$zparent/$zmaster
   echo -n "Waiting for Master ZNode to expire"
@@ -72,7 +72,7 @@ else
   echo #force a newline
 
   # all masters are down, now restart
-  "$bin"/hbase-daemon.sh --config "${HBASE_CONF_DIR}" start master
+  "$bin"/hbase-daemon.sh --config "${HBASE_CONF_DIR}" start master 
   "$bin"/hbase-daemons.sh --config "${HBASE_CONF_DIR}" \
     --hosts "${HBASE_BACKUP_MASTERS}" start master-backup
 
@@ -82,4 +82,3 @@ else
     --hosts "${HBASE_REGIONSERVERS}" restart regionserver
 
 fi
-

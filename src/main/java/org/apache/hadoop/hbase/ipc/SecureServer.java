@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2010 The Apache Software Foundation
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -20,6 +20,7 @@
 
 package org.apache.hadoop.hbase.ipc;
 
+import com.google.common.base.Function;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -555,21 +556,6 @@ public abstract class SecureServer extends HBaseServer {
       }
     }
 
-    private void processData(byte[] buf) throws  IOException, InterruptedException {
-      DataInputStream dis =
-        new DataInputStream(new ByteArrayInputStream(buf));
-      int id = dis.readInt();                    // try to read an id
-
-      if (LOG.isDebugEnabled())
-        LOG.debug(" got #" + id);
-
-      Writable param = ReflectionUtils.newInstance(paramClass, conf);           // read param
-      param.readFields(dis);
-
-      Call call = new Call(id, param, this);
-      callQueue.put(call);              // queue the call; maybe blocked here
-      incRpcCount();  // Increment the rpc count
-    }
 
     private boolean authorizeConnection() throws IOException {
       try {
@@ -612,9 +598,17 @@ public abstract class SecureServer extends HBaseServer {
 
   /** Handles queued calls . */
   private class Handler extends Thread {
-    public Handler(int instanceNumber) {
+    private final BlockingQueue<Call> myCallQueue;
+    public Handler(final BlockingQueue<Call> cq, int instanceNumber) {
+      this.myCallQueue = cq;
       this.setDaemon(true);
-      this.setName("IPC Server handler "+ instanceNumber + " on " + port);
+
+      String threadName = "IPC Server handler " + instanceNumber + " on " + port;
+      if (cq == priorityCallQueue) {
+        // this is just an amazing hack, but it works.
+        threadName = "PRI " + threadName;
+      }
+      this.setName(threadName);
     }
 
     @Override
@@ -625,7 +619,7 @@ public abstract class SecureServer extends HBaseServer {
         new ByteArrayOutputStream(INITIAL_RESP_BUF_SIZE);
       while (running) {
         try {
-          final Call call = callQueue.take(); // pop the queue; maybe blocked here
+          Call call = myCallQueue.take(); // pop the queue; maybe blocked here
 
           if (LOG.isDebugEnabled())
             LOG.debug(getName() + ": has #" + call.id + " from " +
@@ -693,20 +687,29 @@ public abstract class SecureServer extends HBaseServer {
 
   }
 
-  protected SecureServer(String bindAddress, int port,
-      Class<? extends Writable> paramClass, int handlerCount,
-      Configuration conf)
-      throws IOException
-  {
-    this(bindAddress, port, paramClass, handlerCount,  conf, Integer.toString(port), null);
+  /**
+   * Gets the QOS level for this call.  If it is higher than the highPriorityLevel and there
+   * are priorityHandlers available it will be processed in it's own thread set.
+   *
+   * @param param
+   * @return priority, higher is better
+   */
+  private Function<Writable,Integer> qosFunction = null;
+  @Override
+  public void setQosFunction(Function<Writable, Integer> newFunc) {
+    qosFunction = newFunc;
   }
 
-  protected SecureServer(String bindAddress, int port,
-                  Class<? extends Writable> paramClass, int handlerCount,
-						Configuration conf, String serverName)
-    throws IOException
-  {
-    this(bindAddress, port, paramClass, handlerCount,  conf, serverName, null);
+  protected int getQosLevel(Writable param) {
+    if (qosFunction == null) {
+      return 0;
+    }
+
+    Integer res = qosFunction.apply(param);
+    if (res == null) {
+      return 0;
+    }
+    return res;
   }
 
   /** Constructs a server listening on the named port and address.  Parameters passed must
@@ -717,10 +720,10 @@ public abstract class SecureServer extends HBaseServer {
   @SuppressWarnings("unchecked")
   protected SecureServer(String bindAddress, int port,
                   Class<? extends Writable> paramClass, int handlerCount,
-                  Configuration conf, String serverName, SecretManager<? extends TokenIdentifier> secretManager)
+                  int priorityHandlerCount, Configuration conf, String serverName,
+                  int highPriorityLevel)
     throws IOException {
-    super(bindAddress, port, paramClass, handlerCount, conf, serverName);
-    this.secretManager = (SecretManager<TokenIdentifier>) secretManager;
+    super(bindAddress, port, paramClass, handlerCount, priorityHandlerCount, conf, serverName, highPriorityLevel);
     this.authorize =
       conf.getBoolean(HADOOP_SECURITY_AUTHORIZATION, false);
     this.isSecurityEnabled = UserGroupInformation.isSecurityEnabled();
@@ -809,6 +812,10 @@ public abstract class SecureServer extends HBaseServer {
     if (this.rpcDetailedMetrics != null) {
       this.rpcDetailedMetrics.shutdown();
     }
+  }
+
+  public void setSecretManager(SecretManager<? extends TokenIdentifier> secretManager) {
+    this.secretManager = (SecretManager<TokenIdentifier>) secretManager;    
   }
 
   /**

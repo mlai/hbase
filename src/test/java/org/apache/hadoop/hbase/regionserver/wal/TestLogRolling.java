@@ -155,13 +155,16 @@ public class TestLogRolling  {
     // When the META table can be opened, the region servers are running
     new HTable(TEST_UTIL.getConfiguration(), HConstants.META_TABLE_NAME);
     this.server = cluster.getRegionServerThreads().get(0).getRegionServer();
-    this.log = server.getLog();
+    this.log = server.getWAL();
 
     // Create the test table and open it
     HTableDescriptor desc = new HTableDescriptor(tableName);
     desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
     admin.createTable(desc);
     HTable table = new HTable(TEST_UTIL.getConfiguration(), tableName);
+
+    server = TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
+    this.log = server.getWAL();
     for (int i = 1; i <= 256; i++) {    // 256 writes should cause 8 log rolls
       Put put = new Put(Bytes.toBytes("row" + String.format("%1$04d", i)));
       put.add(HConstants.CATALOG_FAMILY, null, value);
@@ -191,7 +194,7 @@ public class TestLogRolling  {
       // flush all regions
 
       List<HRegion> regions =
-        new ArrayList<HRegion>(server.getOnlineRegions());
+        new ArrayList<HRegion>(server.getOnlineRegionsLocalContext());
       for (HRegion r: regions) {
         r.flushcache();
       }
@@ -225,11 +228,8 @@ public class TestLogRolling  {
   /**
    * Give me the HDFS pipeline for this log file
    */
-  @SuppressWarnings("null")
   DatanodeInfo[] getPipeline(HLog log) throws IllegalArgumentException,
       IllegalAccessException, InvocationTargetException {
-
-    // kill a datanode in the pipeline to force a log roll on the next sync()
     OutputStream stm = log.getOutputStream();
     Method getPipeline = null;
     for (Method m : stm.getClass().getDeclaredMethods()) {
@@ -259,12 +259,29 @@ public class TestLogRolling  {
   public void testLogRollOnDatanodeDeath() throws IOException,
       InterruptedException, IllegalArgumentException, IllegalAccessException,
       InvocationTargetException {
-    assertTrue("This test requires HLog file replication.", fs
-        .getDefaultReplication() > 1);
+    assertTrue("This test requires HLog file replication.",
+      fs.getDefaultReplication() > 1);
+    LOG.info("Replication=" + fs.getDefaultReplication());
     // When the META table can be opened, the region servers are running
     new HTable(TEST_UTIL.getConfiguration(), HConstants.META_TABLE_NAME);
+
     this.server = cluster.getRegionServer(0);
-    this.log = server.getLog();
+    this.log = server.getWAL();
+    
+    // Create the test table and open it
+    String tableName = getName();
+    HTableDescriptor desc = new HTableDescriptor(tableName);
+    desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
+
+    if (admin.tableExists(tableName)) {
+      admin.disableTable(tableName);
+      admin.deleteTable(tableName);
+    }
+    admin.createTable(desc);
+    HTable table = new HTable(TEST_UTIL.getConfiguration(), tableName);
+
+    server = TEST_UTIL.getRSForFirstRegionInTable(Bytes.toBytes(tableName));
+    this.log = server.getWAL();
 
     assertTrue("Need HDFS-826 for this test", log.canGetCurReplicas());
     // don't run this test without append support (HDFS-200 & HDFS-142)
@@ -277,18 +294,6 @@ public class TestLogRolling  {
     dfsCluster.waitActive();
     assertTrue(dfsCluster.getDataNodes().size() >= fs.getDefaultReplication() + 1);
 
-    // Create the test table and open it
-    String tableName = getName();
-    HTableDescriptor desc = new HTableDescriptor(tableName);
-    desc.addFamily(new HColumnDescriptor(HConstants.CATALOG_FAMILY));
-
-    if (admin.tableExists(tableName)) {
-      admin.disableTable(tableName);
-      admin.deleteTable(tableName);
-    }
-    admin.createTable(desc);
-
-    HTable table = new HTable(TEST_UTIL.getConfiguration(), tableName);
     writeData(table, 2);
 
     table.setAutoFlush(true);
@@ -298,11 +303,11 @@ public class TestLogRolling  {
     assertTrue("Log should have a timestamp older than now",
         curTime > oldFilenum && oldFilenum != -1);
 
-    assertTrue("The log shouldn't have rolled yet", oldFilenum == log
-        .getFilenum());
+    assertTrue("The log shouldn't have rolled yet", oldFilenum == log.getFilenum());
     DatanodeInfo[] pipeline = getPipeline(log);
     assertTrue(pipeline.length == fs.getDefaultReplication());
 
+    // kill a datanode in the pipeline to force a log roll on the next sync()
     assertTrue(dfsCluster.stopDataNode(pipeline[0].getName()) != null);
     Thread.sleep(10000);
     // this write should succeed, but trigger a log roll

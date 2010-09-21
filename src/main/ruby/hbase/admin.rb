@@ -36,7 +36,7 @@ module Hbase
     def initialize(configuration, formatter)
       @admin = HBaseAdmin.new(configuration)
       connection = @admin.getConnection()
-      @zk_wrapper = connection.getZooKeeperWrapper()
+      @zk_wrapper = connection.getZooKeeperWatcher()
       zk = @zk_wrapper.getZooKeeper()
       @zk_main = ZooKeeperMain.new(zk)
       @formatter = formatter
@@ -132,7 +132,11 @@ module Hbase
         end
 
         # Add column to the table
-        htd.addFamily(hcd(arg))
+        descriptor = hcd(arg)
+        if arg[COMPRESSION_COMPACT]
+          descriptor.setValue(COMPRESSION_COMPACT, arg[COMPRESSION_COMPACT])
+        end
+        htd.addFamily(descriptor)
       end
 
       # Perform the create table call
@@ -216,6 +220,9 @@ module Hbase
         # No method parameter, try to use the args as a column definition
         unless method = arg.delete(METHOD)
           descriptor = hcd(arg)
+          if arg[COMPRESSION_COMPACT]
+            descriptor.setValue(COMPRESSION_COMPACT, arg[COMPRESSION_COMPACT])
+          end
           column_name = descriptor.getNameAsString
 
           # If column already exist, then try to alter it. Create otherwise.
@@ -334,7 +341,7 @@ module Hbase
         arg.include?(HColumnDescriptor::BLOCKCACHE)? JBoolean.valueOf(arg[HColumnDescriptor::BLOCKCACHE]): HColumnDescriptor::DEFAULT_BLOCKCACHE,
         arg.include?(HColumnDescriptor::BLOCKSIZE)? JInteger.valueOf(arg[HColumnDescriptor::BLOCKSIZE]): HColumnDescriptor::DEFAULT_BLOCKSIZE,
         arg.include?(HColumnDescriptor::TTL)? JInteger.new(arg[HColumnDescriptor::TTL]): HColumnDescriptor::DEFAULT_TTL,
-        arg.include?(HColumnDescriptor::BLOOMFILTER)? JBoolean.valueOf(arg[HColumnDescriptor::BLOOMFILTER]): HColumnDescriptor::DEFAULT_BLOOMFILTER,
+        arg.include?(HColumnDescriptor::BLOOMFILTER)? arg[HColumnDescriptor::BLOOMFILTER]: HColumnDescriptor::DEFAULT_BLOOMFILTER,
         arg.include?(HColumnDescriptor::REPLICATION_SCOPE)? JInteger.new(arg[REPLICATION_SCOPE]): HColumnDescriptor::DEFAULT_REPLICATION_SCOPE)
     end
 

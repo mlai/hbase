@@ -20,6 +20,7 @@
 
 package org.apache.hadoop.hbase.ipc;
 
+import com.google.common.base.Function;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -54,6 +55,8 @@ import java.nio.channels.WritableByteChannel;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /** An abstract IPC service.  IPC calls take a single {@link Writable} as a
@@ -76,6 +79,7 @@ public abstract class HBaseServer implements RpcServer {
   /**
    * How many calls/handler are allowed in the queue.
    */
+  private static final int MAX_QUEUE_SIZE_PER_HANDLER = 100;
   private static final int IPC_SERVER_HANDLER_QUEUE_SIZE_DEFAULT = 100;
   private static final String  IPC_SERVER_HANDLER_QUEUE_SIZE_KEY =
                                             "ipc.server.handler.queue.size";
@@ -150,6 +154,8 @@ public abstract class HBaseServer implements RpcServer {
   protected String bindAddress;
   protected int port;                             // port we listen on
   private int handlerCount;                       // number of handler threads
+  private int priorityHandlerCount;
+  private int readThreads;                        // number of read threads
   protected Class<? extends Writable> paramClass; // class of call parameters
   protected int maxIdleTime;                      // the maximum idle time after
                                                   // which a client may be
@@ -175,6 +181,9 @@ public abstract class HBaseServer implements RpcServer {
 
   volatile protected boolean running = true;         // true while server runs
   protected BlockingQueue<Call> callQueue; // queued calls
+  protected BlockingQueue<Call> priorityCallQueue;
+
+  private int highPriorityLevel;  // what level a high priority call is at
 
   protected final List<Connection> connectionList =
     Collections.synchronizedList(new LinkedList<Connection>());
@@ -184,6 +193,7 @@ public abstract class HBaseServer implements RpcServer {
   protected Responder responder = null;
   protected int numConnections = 0;
   private Handler[] handlers = null;
+  private Handler[] priorityHandlers = null;
   protected HBaseRPCErrorHandler errorHandler = null;
 
   /**
@@ -249,6 +259,8 @@ public abstract class HBaseServer implements RpcServer {
 
     private ServerSocketChannel acceptChannel = null; //the accept channel
     private Selector selector = null; //the selector that we use for the server
+    private Reader[] readers = null;
+    private int currentReader = 0;
     private InetSocketAddress address; //the address we bind at
     private Random rand = new Random();
     private long lastCleanupRunTime = 0; //the last time when a cleanup connec-
@@ -256,6 +268,8 @@ public abstract class HBaseServer implements RpcServer {
     private long cleanupInterval = 10000; //the minimum interval between
                                           //two cleanup runs
     private int backlogLength = conf.getInt("ipc.server.listen.queue.size", 128);
+
+    private ExecutorService readPool;
 
     public Listener() throws IOException {
       address = new InetSocketAddress(bindAddress, port);
@@ -269,11 +283,86 @@ public abstract class HBaseServer implements RpcServer {
       // create a selector;
       selector= Selector.open();
 
+      readers = new Reader[readThreads];
+      readPool = Executors.newFixedThreadPool(readThreads);
+      for (int i = 0; i < readThreads; ++i) {
+        Selector readSelector = Selector.open();
+        Reader reader = new Reader(readSelector);
+        readers[i] = reader;
+        readPool.execute(reader);
+      }
+
       // Register accepts on the server socket with the selector.
       acceptChannel.register(selector, SelectionKey.OP_ACCEPT);
       this.setName("IPC Server listener on " + port);
       this.setDaemon(true);
     }
+
+
+    private class Reader implements Runnable {
+      private volatile boolean adding = false;
+      private Selector readSelector = null;
+
+      Reader(Selector readSelector) {
+        this.readSelector = readSelector;
+      }
+      public void run() {
+        LOG.info("Starting SocketReader");
+        synchronized(this) {
+          while (running) {
+            SelectionKey key = null;
+            try {
+              readSelector.select();
+              while (adding) {
+                this.wait(1000);
+              }
+
+              Iterator<SelectionKey> iter = readSelector.selectedKeys().iterator();
+              while (iter.hasNext()) {
+                key = iter.next();
+                iter.remove();
+                if (key.isValid()) {
+                  if (key.isReadable()) {
+                    doRead(key);
+                  }
+                }
+                key = null;
+              }
+            } catch (InterruptedException e) {
+              if (running) {                     // unexpected -- log it
+                LOG.info(getName() + "caught: " +
+                    StringUtils.stringifyException(e));
+              }
+            } catch (IOException ex) {
+               LOG.error("Error in Reader", ex);
+            }
+          }
+        }
+      }
+
+      /**
+       * This gets reader into the state that waits for the new channel
+       * to be registered with readSelector. If it was waiting in select()
+       * the thread will be woken up, otherwise whenever select() is called
+       * it will return even if there is nothing to read and wait
+       * in while(adding) for finishAdd call
+       */
+      public void startAdd() {
+        adding = true;
+        readSelector.wakeup();
+      }
+
+      public synchronized SelectionKey registerChannel(SocketChannel channel)
+        throws IOException {
+        return channel.register(readSelector, SelectionKey.OP_READ);
+      }
+
+      public synchronized void finishAdd() {
+        adding = false;
+        this.notify();
+      }
+    }
+
     /** cleanup connections from connectionList. Choose a random range
      * to scan and also have a limit on the number of the connections
      * that will be cleanedup per run. The criteria for cleanup is the time
@@ -341,8 +430,6 @@ public abstract class HBaseServer implements RpcServer {
               if (key.isValid()) {
                 if (key.isAcceptable())
                   doAccept(key);
-                else if (key.isReadable())
-                  doRead(key);
               }
             } catch (IOException ignored) {
             }
@@ -365,11 +452,6 @@ public abstract class HBaseServer implements RpcServer {
             cleanupConnections(true);
             try { Thread.sleep(60000); } catch (Exception ignored) {}
       }
-        } catch (InterruptedException e) {
-          if (running) {                          // unexpected -- log it
-            LOG.info(getName() + " caught: " +
-                     StringUtils.stringifyException(e));
-          }
         } catch (Exception e) {
           closeCurrentConnection(key, e);
         }
@@ -414,25 +496,30 @@ public abstract class HBaseServer implements RpcServer {
     void doAccept(SelectionKey key) throws IOException, OutOfMemoryError {
       Connection c;
       ServerSocketChannel server = (ServerSocketChannel) key.channel();
-      // accept up to 10 connections
-      for (int i=0; i<10; i++) {
-        SocketChannel channel = server.accept();
-        if (channel==null) return;
 
+      SocketChannel channel;
+      while ((channel = server.accept()) != null) {
         channel.configureBlocking(false);
         channel.socket().setTcpNoDelay(tcpNoDelay);
         channel.socket().setKeepAlive(tcpKeepAlive);
-        SelectionKey readKey = channel.register(selector, SelectionKey.OP_READ);
-        c = getConnection(readKey, channel, System.currentTimeMillis());
-        readKey.attach(c);
-        synchronized (connectionList) {
-          connectionList.add(numConnections, c);
-          numConnections++;
+
+        Reader reader = getReader();
+        try {
+          reader.startAdd();
+          SelectionKey readKey = reader.registerChannel(channel);
+          c = new Connection(channel, System.currentTimeMillis());
+          readKey.attach(c);
+          synchronized (connectionList) {
+            connectionList.add(numConnections, c);
+            numConnections++;
+          }
+          if (LOG.isDebugEnabled())
+            LOG.debug("Server connection from " + c.toString() +
+                "; # active connections: " + numConnections +
+                "; # queued calls: " + callQueue.size());
+        } finally {
+          reader.finishAdd();
         }
-        if (LOG.isDebugEnabled())
-          LOG.debug("Server connection from " + c.toString() +
-              "; # active connections: " + numConnections +
-              "; # queued calls: " + callQueue.size());
       }
     }
 
@@ -477,6 +564,14 @@ public abstract class HBaseServer implements RpcServer {
           LOG.info(getName() + ":Exception in closing listener socket. " + e);
         }
       }
+      readPool.shutdownNow();
+    }
+
+    // The method that will return the next reader to work with
+    // Simplistic implementation of round robin for now
+    Reader getReader() {
+      currentReader = (currentReader + 1) % readers.length;
+      return readers[currentReader];
     }
   }
 
@@ -868,7 +963,7 @@ public abstract class HBaseServer implements RpcServer {
           dataLengthBuffer.clear();
           data.flip();
           if (headerRead) {
-            processData();
+            processData(data.array());
             data = null;
             return count;
           }
@@ -898,9 +993,9 @@ public abstract class HBaseServer implements RpcServer {
       ticket = header.getUgi();
     }
 
-    private void processData() throws  IOException, InterruptedException {
+    protected void processData(byte[] buf) throws  IOException, InterruptedException {
       DataInputStream dis =
-        new DataInputStream(new ByteArrayInputStream(data.array()));
+        new DataInputStream(new ByteArrayInputStream(buf));
       int id = dis.readInt();                    // try to read an id
 
       if (LOG.isDebugEnabled())
@@ -910,7 +1005,12 @@ public abstract class HBaseServer implements RpcServer {
       param.readFields(dis);
 
       Call call = new Call(id, param, this);
-      callQueue.put(call);              // queue the call; maybe blocked here
+
+      if (priorityCallQueue != null && getQosLevel(param) > highPriorityLevel) {
+        priorityCallQueue.put(call);
+      } else {
+        callQueue.put(call);              // queue the call; maybe blocked here
+      }
     }
 
     protected synchronized void close() {
@@ -928,9 +1028,17 @@ public abstract class HBaseServer implements RpcServer {
 
   /** Handles queued calls . */
   private class Handler extends Thread {
-    public Handler(int instanceNumber) {
+    private final BlockingQueue<Call> myCallQueue;
+    public Handler(final BlockingQueue<Call> cq, int instanceNumber) {
+      this.myCallQueue = cq;
       this.setDaemon(true);
-      this.setName("IPC Server handler "+ instanceNumber + " on " + port);
+
+      String threadName = "IPC Server handler " + instanceNumber + " on " + port;
+      if (cq == priorityCallQueue) {
+        // this is just an amazing hack, but it works.
+        threadName = "PRI " + threadName;
+      }
+      this.setName(threadName);
     }
 
     @Override
@@ -941,7 +1049,7 @@ public abstract class HBaseServer implements RpcServer {
       ByteArrayOutputStream buf = new ByteArrayOutputStream(buffersize);
       while (running) {
         try {
-          Call call = callQueue.take(); // pop the queue; maybe blocked here
+          Call call = myCallQueue.take(); // pop the queue; maybe blocked here
 
           if (LOG.isDebugEnabled())
             LOG.debug(getName() + ": has #" + call.id + " from " +
@@ -998,7 +1106,7 @@ public abstract class HBaseServer implements RpcServer {
             throw e;
           }
         } catch (Exception e) {
-          LOG.info(getName() + " caught: " +
+          LOG.warn(getName() + " caught: " +
                    StringUtils.stringifyException(e));
         }
       }
@@ -1007,34 +1115,61 @@ public abstract class HBaseServer implements RpcServer {
 
   }
 
-  protected HBaseServer(String bindAddress, int port,
-                  Class<? extends Writable> paramClass, int handlerCount,
-                  Configuration conf)
-    throws IOException
-  {
-    this(bindAddress, port, paramClass, handlerCount,  conf, Integer.toString(port));
+  /**
+   * Gets the QOS level for this call.  If it is higher than the highPriorityLevel and there
+   * are priorityHandlers available it will be processed in it's own thread set.
+   *
+   * @param param
+   * @return priority, higher is better
+   */
+  private Function<Writable,Integer> qosFunction = null;
+  @Override
+  public void setQosFunction(Function<Writable, Integer> newFunc) {
+    qosFunction = newFunc;
   }
+
+  protected int getQosLevel(Writable param) {
+    if (qosFunction == null) {
+      return 0;
+    }
+
+    Integer res = qosFunction.apply(param);
+    if (res == null) {
+      return 0;
+    }
+    return res;
+  }
+
   /* Constructs a server listening on the named port and address.  Parameters passed must
    * be of the named class.  The <code>handlerCount</handlerCount> determines
    * the number of handler threads that will be used to process calls.
    *
    */
   protected HBaseServer(String bindAddress, int port,
-                  Class<? extends Writable> paramClass, int handlerCount,
-                  Configuration conf, String serverName)
+                        Class<? extends Writable> paramClass, int handlerCount,
+                        int priorityHandlerCount, Configuration conf, String serverName,
+                        int highPriorityLevel)
     throws IOException {
     this.bindAddress = bindAddress;
     this.conf = conf;
     this.port = port;
     this.paramClass = paramClass;
     this.handlerCount = handlerCount;
+    this.priorityHandlerCount = priorityHandlerCount;
     this.socketSendBufferSize = 0;
-    this.maxQueueSize = handlerCount * conf.getInt(
-                                IPC_SERVER_HANDLER_QUEUE_SIZE_KEY,
-                                IPC_SERVER_HANDLER_QUEUE_SIZE_DEFAULT);
     this.maxRespSize = conf.getInt(IPC_SERVER_RPC_MAX_RESPONSE_SIZE_KEY,
                                    IPC_SERVER_RPC_MAX_RESPONSE_SIZE_DEFAULT);
+    this.maxQueueSize = handlerCount * MAX_QUEUE_SIZE_PER_HANDLER;
+     this.readThreads = conf.getInt(
+        "ipc.server.read.threadpool.size",
+        10);
     this.callQueue  = new LinkedBlockingQueue<Call>(maxQueueSize);
+    if (priorityHandlerCount > 0) {
+      this.priorityCallQueue = new LinkedBlockingQueue<Call>(maxQueueSize); // TODO hack on size
+    } else {
+      this.priorityCallQueue = null;
+    }
+    this.highPriorityLevel = highPriorityLevel;
     this.maxIdleTime = 2*conf.getInt("ipc.client.connection.maxidletime", 1000);
     this.maxConnectionsToNuke = conf.getInt("ipc.client.kill.max", 10);
     this.thresholdIdleConnections = conf.getInt("ipc.client.idlethreshold", 4000);
@@ -1049,6 +1184,8 @@ public abstract class HBaseServer implements RpcServer {
 
     // Create the responder here
     responder = new Responder();
+
+    
   }
 
   protected Connection getConnection(SelectionKey readKey,
@@ -1078,8 +1215,16 @@ public abstract class HBaseServer implements RpcServer {
     handlers = new Handler[handlerCount];
 
     for (int i = 0; i < handlerCount; i++) {
-      handlers[i] = new Handler(i);
+      handlers[i] = new Handler(callQueue, i);
       handlers[i].start();
+    }
+
+    if (priorityHandlerCount > 0) {
+      priorityHandlers = new Handler[priorityHandlerCount];
+      for (int i = 0 ; i < priorityHandlerCount; i++) {
+        priorityHandlers[i] = new Handler(priorityCallQueue, i);
+        priorityHandlers[i].start();
+      }
     }
   }
 
@@ -1089,9 +1234,16 @@ public abstract class HBaseServer implements RpcServer {
     LOG.info("Stopping server on " + port);
     running = false;
     if (handlers != null) {
-      for (int i = 0; i < handlerCount; i++) {
-        if (handlers[i] != null) {
-          handlers[i].interrupt();
+      for (Handler handler : handlers) {
+        if (handler != null) {
+          handler.interrupt();
+        }
+      }
+    }
+    if (priorityHandlers != null) {
+      for (Handler handler : priorityHandlers) {
+        if (handler != null) {
+          handler.interrupt();
         }
       }
     }

@@ -43,6 +43,7 @@ import org.apache.hadoop.hbase.client.Get;
 import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.io.hfile.HFile;
+import org.apache.hadoop.hbase.regionserver.FlushRequester;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -185,7 +186,7 @@ public class TestWALReplay {
     final Path basedir = new Path(this.hbaseRootDir, tableNameStr);
     deleteDir(basedir);
     HLog wal = createWAL(this.conf);
-    HRegion region = HRegion.openHRegion(hri, basedir, wal, this.conf);
+    HRegion region = HRegion.openHRegion(hri, wal, this.conf);
     Path f =  new Path(basedir, "hfile");
     HFile.Writer writer = new HFile.Writer(this.fs, f);
     byte [] family = hri.getTableDesc().getFamilies().iterator().next().getName();
@@ -340,7 +341,7 @@ public class TestWALReplay {
     final HLog wal = createWAL(this.conf);
     final byte[] tableName = Bytes.toBytes(tableNameStr);
     final byte[] rowName = tableName;
-    final byte[] regionName = hri.getRegionName();
+    final byte[] regionName = hri.getEncodedNameAsBytes();
 
     // Add 1k to each family.
     final int countPerFamily = 1000;
@@ -416,6 +417,23 @@ public class TestWALReplay {
     });
   }
 
+  // Flusher used in this test.  Keep count of how often we are called and
+  // actually run the flush inside here.
+  class TestFlusher implements FlushRequester {
+    private int count = 0;
+    private HRegion r;
+
+    @Override
+    public void requestFlush(HRegion region) {
+      count++;
+      try {
+        r.flushcache();
+      } catch (IOException e) {
+        throw new RuntimeException("Exception flushing", e);
+      }
+    }
+  }
+
   private void addWALEdits (final byte [] tableName, final HRegionInfo hri,
       final byte [] rowName, final byte [] family, 
       final int count, EnvironmentEdge ee, final HLog wal)
@@ -484,7 +502,7 @@ public class TestWALReplay {
    * @throws IOException
    */
   private HLog createWAL(final Configuration c) throws IOException {
-    HLog wal = new HLog(FileSystem.get(c), logDir, oldLogDir, c, null);
+    HLog wal = new HLog(FileSystem.get(c), logDir, oldLogDir, c);
     // Set down maximum recovery so we dfsclient doesn't linger retrying something
     // long gone.
     HBaseTestingUtility.setMaxRecoveryErrorCount(wal.getOutputStream(), 1);

@@ -37,6 +37,7 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -44,6 +45,7 @@ import org.apache.hadoop.hbase.util.PairOfSameType;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 /**
  * Test the {@link SplitTransaction} class against an HRegion (as opposed to
@@ -67,8 +69,9 @@ public class TestSplitTransaction {
     this.fs.delete(this.testdir, true);
     this.wal = new HLog(fs, new Path(this.testdir, "logs"),
       new Path(this.testdir, "archive"),
-      TEST_UTIL.getConfiguration(), null);
+      TEST_UTIL.getConfiguration());
     this.parent = createRegion(this.testdir, this.wal);
+    TEST_UTIL.getConfiguration().setBoolean("hbase.testing.nocluster", true);
   }
 
   @After public void teardown() throws IOException {
@@ -92,8 +95,6 @@ public class TestSplitTransaction {
   private SplitTransaction prepareGOOD_SPLIT_ROW() {
     SplitTransaction st = new SplitTransaction(this.parent, GOOD_SPLIT_ROW);
     assertTrue(st.prepare());
-    // Assert the write lock is held on successful prepare as the javadoc asserts.
-    assertTrue(this.parent.splitsAndClosesLock.writeLock().isHeldByCurrentThread());
     return st;
   }
 
@@ -128,7 +129,9 @@ public class TestSplitTransaction {
     SplitTransaction st = prepareGOOD_SPLIT_ROW();
 
     // Run the execute.  Look at what it returns.
-    PairOfSameType<HRegion> daughters = st.execute(null);
+    Server mockServer = Mockito.mock(Server.class);
+    when(mockServer.getConfiguration()).thenReturn(TEST_UTIL.getConfiguration());
+    PairOfSameType<HRegion> daughters = st.execute(mockServer, null);
     // Do some assertions about execution.
     assertTrue(this.fs.exists(st.getSplitDir()));
     // Assert the parent region is closed.
@@ -150,7 +153,7 @@ public class TestSplitTransaction {
     int daughtersRowCount = 0;
     for (HRegion r: daughters) {
       // Open so can count its content.
-      HRegion openRegion = HRegion.openHRegion(r.getRegionInfo(), this.testdir,
+      HRegion openRegion = HRegion.openHRegion(r.getRegionInfo(),
         r.getLog(), r.getConf());
       try {
         int count = countRows(openRegion);
@@ -162,7 +165,7 @@ public class TestSplitTransaction {
     }
     assertEquals(rowcount, daughtersRowCount);
     // Assert the write lock is no longer held on parent
-    assertTrue(!this.parent.splitsAndClosesLock.writeLock().isHeldByCurrentThread());
+    assertTrue(!this.parent.lock.writeLock().isHeldByCurrentThread());
   }
 
   @Test public void testRollback() throws IOException {
@@ -174,12 +177,14 @@ public class TestSplitTransaction {
     // Start transaction.
     SplitTransaction st = prepareGOOD_SPLIT_ROW();
     SplitTransaction spiedUponSt = spy(st);
-    when(spiedUponSt.createDaughterRegion(spiedUponSt.getSecondDaughter())).
+    when(spiedUponSt.createDaughterRegion(spiedUponSt.getSecondDaughter(), null)).
       thenThrow(new MockedFailedDaughterCreation());
     // Run the execute.  Look at what it returns.
     boolean expectedException = false;
+    Server mockServer = Mockito.mock(Server.class);
+    when(mockServer.getConfiguration()).thenReturn(TEST_UTIL.getConfiguration());
     try {
-      spiedUponSt.execute(null);
+      spiedUponSt.execute(mockServer, null);
     } catch (MockedFailedDaughterCreation e) {
       expectedException = true;
     }
@@ -194,16 +199,16 @@ public class TestSplitTransaction {
     // Assert rollback cleaned up stuff in fs
     assertTrue(!this.fs.exists(HRegion.getRegionDir(this.testdir, st.getFirstDaughter())));
     assertTrue(!this.fs.exists(HRegion.getRegionDir(this.testdir, st.getSecondDaughter())));
-    assertTrue(!this.parent.splitsAndClosesLock.writeLock().isHeldByCurrentThread());
+    assertTrue(!this.parent.lock.writeLock().isHeldByCurrentThread());
 
     // Now retry the split but do not throw an exception this time.
     assertTrue(st.prepare());
-    PairOfSameType<HRegion> daughters = st.execute(null);
+    PairOfSameType<HRegion> daughters = st.execute(mockServer, null);
     // Count rows.
     int daughtersRowCount = 0;
     for (HRegion r: daughters) {
       // Open so can count its content.
-      HRegion openRegion = HRegion.openHRegion(r.getRegionInfo(), this.testdir,
+      HRegion openRegion = HRegion.openHRegion(r.getRegionInfo(),
         r.getLog(), r.getConf());
       try {
         int count = countRows(openRegion);
@@ -215,7 +220,7 @@ public class TestSplitTransaction {
     }
     assertEquals(rowcount, daughtersRowCount);
     // Assert the write lock is no longer held on parent
-    assertTrue(!this.parent.splitsAndClosesLock.writeLock().isHeldByCurrentThread());
+    assertTrue(!this.parent.lock.writeLock().isHeldByCurrentThread());
   }
 
   /**
@@ -248,6 +253,6 @@ public class TestSplitTransaction {
     HColumnDescriptor hcd = new HColumnDescriptor(CF);
     htd.addFamily(hcd);
     HRegionInfo hri = new HRegionInfo(htd, STARTROW, ENDROW);
-    return HRegion.openHRegion(hri, testdir, wal, TEST_UTIL.getConfiguration());
+    return HRegion.openHRegion(hri, wal, TEST_UTIL.getConfiguration());
   }
 }

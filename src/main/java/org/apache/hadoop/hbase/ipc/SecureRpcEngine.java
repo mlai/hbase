@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2010 The Apache Software Foundation
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -32,6 +32,7 @@ import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.metrics.util.MetricsTimeVaryingRate;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.authorize.ServiceAuthorizationManager;
 import org.apache.hadoop.security.token.SecretManager;
 import org.apache.hadoop.security.token.TokenIdentifier;
 
@@ -81,83 +82,6 @@ public class SecureRpcEngine implements RpcEngine {
   private SecureRpcEngine() {
     super();
   }                                  // no public ctor
-
-  /** A method invocation, including the method name and its parameters.*/
-  private static class Invocation implements Writable, Configurable {
-    private String methodName;
-    @SuppressWarnings("unchecked")
-    private Class[] parameterClasses;
-    private Object[] parameters;
-    private Configuration conf;
-
-    /** default constructor */
-    public Invocation() {
-      super();
-    }
-
-    /**
-     * @param method method to call
-     * @param parameters parameters of call
-     */
-    public Invocation(Method method, Object[] parameters) {
-      this.methodName = method.getName();
-      this.parameterClasses = method.getParameterTypes();
-      this.parameters = parameters;
-    }
-
-    /** @return The name of the method invoked. */
-    public String getMethodName() { return methodName; }
-
-    /** @return The parameter classes. */
-    @SuppressWarnings("unchecked")
-    public Class[] getParameterClasses() { return parameterClasses; }
-
-    /** @return The parameter instances. */
-    public Object[] getParameters() { return parameters; }
-
-    public void readFields(DataInput in) throws IOException {
-      methodName = in.readUTF();
-      parameters = new Object[in.readInt()];
-      parameterClasses = new Class[parameters.length];
-      HbaseObjectWritable objectWritable = new HbaseObjectWritable();
-      for (int i = 0; i < parameters.length; i++) {
-        parameters[i] = HbaseObjectWritable.readObject(in, objectWritable,
-          this.conf);
-        parameterClasses[i] = objectWritable.getDeclaredClass();
-      }
-    }
-
-    public void write(DataOutput out) throws IOException {
-      out.writeUTF(this.methodName);
-      out.writeInt(parameterClasses.length);
-      for (int i = 0; i < parameterClasses.length; i++) {
-        HbaseObjectWritable.writeObject(out, parameters[i], parameterClasses[i],
-                                   conf);
-      }
-    }
-
-    @Override
-    public String toString() {
-      StringBuilder buffer = new StringBuilder(256);
-      buffer.append(methodName);
-      buffer.append("(");
-      for (int i = 0; i < parameters.length; i++) {
-        if (i != 0)
-          buffer.append(", ");
-        buffer.append(parameters[i]);
-      }
-      buffer.append(")");
-      return buffer.toString();
-    }
-
-    public void setConf(Configuration conf) {
-      this.conf = conf;
-    }
-
-    public Configuration getConf() {
-      return this.conf;
-    }
-  }
 
   /* Cache a client using its socket factory as the hash key */
   static private class ClientCache {
@@ -247,7 +171,8 @@ public class SecureRpcEngine implements RpcEngine {
         startTime = System.currentTimeMillis();
       }
       HbaseObjectWritable value = (HbaseObjectWritable)
-		  client.call(new Invocation(method, args), address, protocol, ticket);
+        client.call(new Invocation(method, args), address,
+                    protocol, ticket);
       if (logDebug) {
         long callTime = System.currentTimeMillis() - startTime;
         LOG.debug("Call: " + method.getName() + " " + callTime);
@@ -265,125 +190,6 @@ public class SecureRpcEngine implements RpcEngine {
   }
 
   /**
-   * A version mismatch for the RPC protocol.
-   */
-  @SuppressWarnings("serial")
-  public static class VersionMismatch extends IOException {
-    private String interfaceName;
-    private long clientVersion;
-    private long serverVersion;
-
-    /**
-     * Create a version mismatch exception
-     * @param interfaceName the name of the protocol mismatch
-     * @param clientVersion the client's version of the protocol
-     * @param serverVersion the server's version of the protocol
-     */
-    public VersionMismatch(String interfaceName, long clientVersion,
-                           long serverVersion) {
-      super("Protocol " + interfaceName + " version mismatch. (client = " +
-            clientVersion + ", server = " + serverVersion + ")");
-      this.interfaceName = interfaceName;
-      this.clientVersion = clientVersion;
-      this.serverVersion = serverVersion;
-    }
-
-    /**
-     * Get the interface name
-     * @return the java class name
-     *          (eg. org.apache.hadoop.mapred.InterTrackerProtocol)
-     */
-    public String getInterfaceName() {
-      return interfaceName;
-    }
-
-    /**
-     * @return the client's preferred version
-     */
-    public long getClientVersion() {
-      return clientVersion;
-    }
-
-    /**
-     * @return the server's agreed to version.
-     */
-    public long getServerVersion() {
-      return serverVersion;
-    }
-  }
-
-  /**
-   * Get a proxy connection to a remote server
-   * @param protocol protocol interface
-   * @param clientVersion which client version we expect
-   * @param addr address of remote service
-   * @param conf configuration
-   * @param maxAttempts max attempts
-   * @param timeout timeout in milliseconds
-   * @return proxy
-   * @throws java.io.IOException e
-   */
-  @SuppressWarnings("unchecked")
-  public VersionedProtocol waitForProxy(Class<? extends VersionedProtocol> protocol,
-                                               long clientVersion,
-                                               InetSocketAddress addr,
-                                               Configuration conf,
-                                               int maxAttempts,
-                                               long timeout
-                                               ) throws IOException {
-    // HBase does limited number of reconnects which is different from hadoop.
-    long startTime = System.currentTimeMillis();
-    IOException ioe;
-    int reconnectAttempts = 0;
-    while (true) {
-      try {
-        return getProxy(protocol, clientVersion, addr, conf);
-      } catch(ConnectException se) {  // namenode has not been started
-        ioe = se;
-        if (maxAttempts >= 0 && ++reconnectAttempts >= maxAttempts) {
-          LOG.info("Server at " + addr + " could not be reached after " +
-            reconnectAttempts + " tries, giving up.");
-          throw new RetriesExhaustedException("Failed setting up proxy to " +
-            addr.toString() + " after attempts=" + reconnectAttempts);
-        }
-      } catch(SocketTimeoutException te) {  // namenode is busy
-        LOG.info("Problem connecting to server: " + addr);
-        ioe = te;
-      }
-      // check if timed out
-      if (System.currentTimeMillis()-timeout >= startTime) {
-        throw ioe;
-      }
-
-      // wait for retry
-      try {
-        Thread.sleep(1000);
-      } catch (InterruptedException ie) {
-        // IGNORE
-      }
-    }
-  }
-
-  /**
-   * Construct a client-side proxy object that implements the named protocol,
-   * talking to a server at the named address.
-   *
-   * @param protocol interface
-   * @param clientVersion version we are expecting
-   * @param addr remote address
-   * @param conf configuration
-   * @param factory socket factory
-   * @return proxy
-   * @throws java.io.IOException e
-   */
-  public VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
-      long clientVersion, InetSocketAddress addr, Configuration conf,
-      SocketFactory factory) throws IOException {
-    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
-    return getProxy(protocol, clientVersion, addr, ugi, conf, factory);
-  }
-
-  /**
    * Construct a client-side proxy object that implements the named protocol,
    * talking to a server at the named address.
    *
@@ -396,8 +202,9 @@ public class SecureRpcEngine implements RpcEngine {
    * @return proxy
    * @throws java.io.IOException e
    */
-  public VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
-      long clientVersion, InetSocketAddress addr, UserGroupInformation ticket,
+  public VersionedProtocol getProxy(
+      Class<? extends VersionedProtocol> protocol, long clientVersion,
+      InetSocketAddress addr, UserGroupInformation ticket,
       Configuration conf, SocketFactory factory)
   throws IOException {
     if (UserGroupInformation.isSecurityEnabled()) {
@@ -409,31 +216,11 @@ public class SecureRpcEngine implements RpcEngine {
             new Invoker(protocol, addr, ticket, conf, factory));
     long serverVersion = proxy.getProtocolVersion(protocol.getName(),
                                                   clientVersion);
-    if (serverVersion == clientVersion) {
-      return proxy;
-    } else {
-      throw new VersionMismatch(protocol.getName(), clientVersion,
+    if (serverVersion != clientVersion) {
+      throw new HBaseRPC.VersionMismatch(protocol.getName(), clientVersion,
                                 serverVersion);
     }
-  }
-
-  /**
-   * Construct a client-side proxy object with the default SocketFactory
-   *
-   * @param protocol interface
-   * @param clientVersion version we are expecting
-   * @param addr remote address
-   * @param conf configuration
-   * @return a proxy instance
-   * @throws java.io.IOException e
-   */
-  public VersionedProtocol getProxy(
-      Class<? extends VersionedProtocol> protocol,
-      long clientVersion, InetSocketAddress addr, Configuration conf)
-      throws IOException {
-
-    return getProxy(protocol, clientVersion, addr, conf,
-        NetUtils.getDefaultSocketFactory(conf));
+    return proxy;
   }
 
   /**
@@ -446,20 +233,12 @@ public class SecureRpcEngine implements RpcEngine {
     }
   }
 
-  /**
-   * Expert: Make multiple, parallel calls to a set of servers.
-   * @deprecated Use {@link #call(java.lang.reflect.Method, Object[][], java.net.InetSocketAddress[], org.apache.hadoop.security.UserGroupInformation, org.apache.hadoop.conf.Configuration)} instead
-   */
-  public Object[] call(Method method, Object[][] params,
-                              InetSocketAddress[] addrs, Configuration conf)
-    throws IOException, InterruptedException {
-    return call(method, params, addrs, null, conf);
-  }
 
   /** Expert: Make multiple, parallel calls to a set of servers. */
   public Object[] call(Method method, Object[][] params,
-                              InetSocketAddress[] addrs,
-                              UserGroupInformation ticket, Configuration conf)
+                       InetSocketAddress[] addrs,
+                       Class<? extends VersionedProtocol> protocol,
+                       UserGroupInformation ticket, Configuration conf)
     throws IOException, InterruptedException {
 
     Invocation[] invocations = new Invocation[params.length];
@@ -468,7 +247,7 @@ public class SecureRpcEngine implements RpcEngine {
     SecureClient client = CLIENTS.getClient(conf);
     try {
       Writable[] wrappedValues =
-          client.call(invocations, addrs, (Class)method.getDeclaringClass(), ticket);
+        client.call(invocations, addrs, protocol, ticket);
 
       if (method.getReturnType() == Void.TYPE) {
         return null;
@@ -486,76 +265,29 @@ public class SecureRpcEngine implements RpcEngine {
     }
   }
 
-  /**
-   * Construct a server for a protocol implementation instance listening on a
-   * port and address.
-   *
-   * @param instance instance
-   * @param bindAddress bind address
-   * @param port port to bind to
-   * @param conf configuration
-   * @return Server
-   * @throws java.io.IOException e
-   */
-  public Server getServer(Class<? extends VersionedProtocol> protocol,
-      final Object instance, final String bindAddress,
-      final int port, Configuration conf)
-    throws IOException {
-    return getServer(protocol, instance, bindAddress, port, 1, false, conf);
-  }
-
-  /**
-   * Construct a server for a protocol implementation instance listening on a
-   * port and address.
-   *
-   * @param instance instance
-   * @param bindAddress bind address
-   * @param port port to bind to
-   * @param numHandlers number of handlers to start
-   * @param verbose verbose flag
-   * @param conf configuration
-   * @return Server
-   * @throws java.io.IOException e
-   */
-  public Server getServer(Class<? extends VersionedProtocol> protocol,
-      final Object instance, final String bindAddress, final int port,
-      final int numHandlers,
-      final boolean verbose, Configuration conf)
-    throws IOException {
-    return getServer(protocol, instance, bindAddress, port, numHandlers, verbose, conf, null);
-  }
-
   /** Construct a server for a protocol implementation instance listening on a
    * port and address, with a secret manager. */
-  public static Server getServer(Class<? extends VersionedProtocol> protocol,
-      final Object instance, final String bindAddress, final int port,
+  public Server getServer(Class<? extends VersionedProtocol> protocol,
+      final Object instance,
+      Class<?>[] ifaces,
+      final String bindAddress, final int port,
       final int numHandlers,
-      final boolean verbose, Configuration conf,
-      SecretManager<? extends TokenIdentifier> secretManager)
+      int metaHandlerCount, final boolean verbose, Configuration conf,
+       int highPriorityLevel)
     throws IOException {
     return
-        new Server(instance, conf, bindAddress, port,
-            numHandlers, verbose, secretManager);
+        new Server(instance, ifaces, conf, bindAddress, port,
+            numHandlers, metaHandlerCount, verbose,
+            highPriorityLevel);
   }
 
   /** An RPC Server. */
   public static class Server extends SecureServer {
     private Object instance;
     private Class<?> implementation;
+    private Class<?>[] ifaces;
     private boolean verbose;
-
-    /**
-     * Construct an RPC server.
-     * @param instance the instance whose methods will be called
-     * @param conf the configuration to use
-     * @param bindAddress the address to bind on to listen for connection
-     * @param port the port to listen for connections on
-     * @throws java.io.IOException e
-     */
-    public Server(Object instance, Configuration conf, String bindAddress, int port)
-      throws IOException {
-      this(instance, conf,  bindAddress, port, 1, false, null);
-    }
+    private boolean authorize = false;
 
     private static String classNameBase(String className) {
       String[] names = className.split("\\.", -1);
@@ -574,19 +306,32 @@ public class SecureRpcEngine implements RpcEngine {
      * @param verbose whether each call should be logged
      * @throws java.io.IOException e
      */
-    public Server(Object instance, Configuration conf, String bindAddress,  int port,
-                  int numHandlers, boolean verbose,
-                  SecretManager<? extends TokenIdentifier> secretManager)
+    public Server(Object instance, final Class<?>[] ifaces,
+                  Configuration conf, String bindAddress,  int port,
+                  int numHandlers, int metaHandlerCount, boolean verbose,
+                  int highPriorityLevel)
         throws IOException {
-      super(bindAddress, port, Invocation.class, numHandlers, conf,
-          classNameBase(instance.getClass().getName()), secretManager);
+      super(bindAddress, port, Invocation.class, numHandlers, metaHandlerCount, conf,
+          classNameBase(instance.getClass().getName()), highPriorityLevel);
       this.instance = instance;
       this.implementation = instance.getClass();
       this.verbose = verbose;
+
+      this.ifaces = ifaces;
+
+      // create metrics for the advertised interfaces this server implements.
+      this.rpcMetrics.createMetrics(this.ifaces);
+
+      // TODO: is this needed?
+      this.authorize =
+        conf.getBoolean(ServiceAuthorizationManager.SERVICE_AUTHORIZATION_CONFIG,
+                        false);
     }
 
     @Override
-    public Writable call(Class<? extends VersionedProtocol> protocol, Writable param, long receivedTime) throws IOException {
+    public Writable call(Class<? extends VersionedProtocol> protocol,
+        Writable param, long receivedTime)
+    throws IOException {
       try {
         Invocation call = (Invocation)param;
         if(call.getMethodName() == null) {
@@ -599,8 +344,16 @@ public class SecureRpcEngine implements RpcEngine {
                                    call.getParameterClasses());
         method.setAccessible(true);
 
+        Object impl = null;
+        if (protocol.isAssignableFrom(this.implementation)) {
+          impl = this.instance;
+        }
+        else {
+          throw new HBaseRPC.UnknownProtocolException(protocol);
+        }
+
         long startTime = System.currentTimeMillis();
-        Object value = method.invoke(instance, call.getParameters());
+        Object value = method.invoke(impl, call.getParameters());
         int processingTime = (int) (System.currentTimeMillis() - startTime);
         int qTime = (int) (startTime-receivedTime);
         if (LOG.isDebugEnabled()) {
@@ -610,22 +363,7 @@ public class SecureRpcEngine implements RpcEngine {
         }
         rpcMetrics.rpcQueueTime.inc(qTime);
         rpcMetrics.rpcProcessingTime.inc(processingTime);
-
-        MetricsTimeVaryingRate m =
-         (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(call.getMethodName());
-        if (m == null) {
-          try {
-            m = new MetricsTimeVaryingRate(call.getMethodName(),
-                rpcDetailedMetrics.registry);
-          } catch (IllegalArgumentException iae) {
-            // the metrics has been registered; re-fetch the handle
-            LOG.info("Error register " + call.getMethodName(), iae);
-            m = (MetricsTimeVaryingRate) rpcDetailedMetrics.registry.get(
-                call.getMethodName());
-          }
-        }
-        m.inc(processingTime);
-
+        rpcMetrics.inc(call.getMethodName(), processingTime);
         if (verbose) log("Return: "+value);
 
         return new HbaseObjectWritable(method.getReturnType(), value);

@@ -32,6 +32,7 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FilterFileSystem;
@@ -44,7 +45,6 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
-import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileScanner;
 import org.apache.hadoop.hbase.regionserver.StoreFile.BloomType;
 import org.apache.hadoop.hbase.util.Bytes;
@@ -161,8 +161,11 @@ public class TestFSErrorsExposed {
           fam, 1, HColumnDescriptor.DEFAULT_COMPRESSION,
           false, false, HConstants.FOREVER, "NONE"));
       admin.createTable(desc);
-
-      HTable table = new HTable(tableName);
+      // Make it fail faster.
+      util.getConfiguration().setInt("hbase.client.retries.number", 1);
+      // Make a new Configuration so it makes a new connection that has the
+      // above configuration on it; else we use the old one w/ 10 as default.
+      HTable table = new HTable(new Configuration(util.getConfiguration()), tableName);
 
       // Load some data
       util.loadTable(table, fam);

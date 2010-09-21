@@ -22,6 +22,8 @@ package org.apache.hadoop.hbase.regionserver;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,12 +36,15 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.google.common.collect.ClassToInstanceMap;
+import com.google.common.collect.MutableClassToInstanceMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -58,16 +63,13 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.Get;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Result;
-import org.apache.hadoop.hbase.client.RowLock;
-import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.IncompatibleFilterException;
 import org.apache.hadoop.hbase.io.HeapSize;
 import org.apache.hadoop.hbase.io.hfile.BlockCache;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.HBaseRPC;
 import org.apache.hadoop.hbase.ipc.HRegionInterface;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
 import org.apache.hadoop.hbase.regionserver.wal.HLogKey;
@@ -81,7 +83,6 @@ import org.apache.hadoop.hbase.util.Writables;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.StringUtils;
-import org.eclipse.jdt.core.dom.ThisExpression;
 
 import com.google.common.collect.Lists;
 
@@ -147,6 +148,10 @@ public class HRegion implements HeapSize { // , Writable{
   protected final Map<byte [], Store> stores =
     new ConcurrentSkipListMap<byte [], Store>(Bytes.BYTES_RAWCOMPARATOR);
 
+  // Registered region protocol handlers
+  private ClassToInstanceMap<CoprocessorProtocol>
+      protocolHandlers = MutableClassToInstanceMap.create();
+
   //These variable are just used for getting data out of the region, to test on
   //client side
   // private int numStores = 0;
@@ -160,7 +165,7 @@ public class HRegion implements HeapSize { // , Writable{
    * This directory contains the directory for this region.
    */
   final Path tableDir;
-  
+
   final HLog log;
   final FileSystem fs;
   final Configuration conf;
@@ -213,13 +218,11 @@ public class HRegion implements HeapSize { // , Writable{
 
   final long memstoreFlushSize;
   private volatile long lastFlushTime;
-  final FlushRequester flushListener;
+  final FlushRequester flushRequester;
   private final long blockingMemStoreSize;
   final long threadWakeFrequency;
-  // Used to guard splits and closes
-  final ReentrantReadWriteLock splitsAndClosesLock =
-    new ReentrantReadWriteLock();
-  private final ReentrantReadWriteLock newScannerLock =
+  // Used to guard closes
+  final ReentrantReadWriteLock lock =
     new ReentrantReadWriteLock();
 
   // Stop updates lock
@@ -242,7 +245,7 @@ public class HRegion implements HeapSize { // , Writable{
     this.tableDir = null;
     this.blockingMemStoreSize = 0L;
     this.conf = null;
-    this.flushListener = null;
+    this.flushRequester = null;
     this.fs = null;
     this.memstoreFlushSize = 0L;
     this.log = null;
@@ -270,22 +273,19 @@ public class HRegion implements HeapSize { // , Writable{
    * @param conf is global configuration settings.
    * @param regionInfo - HRegionInfo that describes the region
    * is new), then read them from the supplied path.
-   * @param flushListener an object that implements CacheFlushListener or null
-   * making progress to master -- otherwise master might think region deploy
-   * failed.  Can be null.
+   * @param flushRequester an object that implements {@link FlushRequester} or null
    *
    * @see HRegion#newHRegion(Path, HLog, FileSystem, Configuration, org.apache.hadoop.hbase.HRegionInfo, FlushRequester)
-
    */
   public HRegion(Path tableDir, HLog log, FileSystem fs, Configuration conf,
-      HRegionInfo regionInfo, FlushRequester flushListener) {
+      HRegionInfo regionInfo, FlushRequester flushRequester) {
     this.tableDir = tableDir;
     this.comparator = regionInfo.getComparator();
     this.log = log;
     this.fs = fs;
     this.conf = conf;
     this.regionInfo = regionInfo;
-    this.flushListener = flushListener;
+    this.flushRequester = flushRequester;
     this.threadWakeFrequency = conf.getLong(HConstants.THREAD_WAKE_FREQUENCY,
         10 * 1000);
     String encodedNameStr = this.regionInfo.getEncodedName();
@@ -382,7 +382,7 @@ public class HRegion implements HeapSize { // , Writable{
   /**
    * @return True if this region has references.
    */
-  boolean hasReferences() {
+  public boolean hasReferences() {
     for (Store store : this.stores.values()) {
       for (StoreFile sf : store.getStorefiles()) {
         // Found a reference, return.
@@ -503,39 +503,28 @@ public class HRegion implements HeapSize { // , Writable{
       LOG.info("Running close preflush of " + this.getRegionNameAsString());
       internalFlushcache();
     }
-    newScannerLock.writeLock().lock();
     this.closing.set(true);
+    lock.writeLock().lock();
     try {
-      splitsAndClosesLock.writeLock().lock();
       if (this.isClosed()) {
         // SplitTransaction handles the null
         return null;
       }
-      LOG.debug("Updates disabled for region, no outstanding scanners on " + this);
-      try {
-        // Write lock means no more row locks can be given out.  Wait on
-        // outstanding row locks to come in before we close so we do not drop
-        // outstanding updates.
-        waitOnRowLocks();
-        LOG.debug("No more row locks outstanding on region " + this);
-
-        // Don't flush the cache if we are aborting
-        if (!abort) {
-          internalFlushcache();
-        }
-
-        List<StoreFile> result = new ArrayList<StoreFile>();
-        for (Store store: stores.values()) {
-          result.addAll(store.close());
-        }
-        this.closed.set(true);
-        LOG.info("Closed " + this);
-        return result;
-      } finally {
-        splitsAndClosesLock.writeLock().unlock();
+      LOG.debug("Updates disabled for region " + this);
+      // Don't flush the cache if we are aborting
+      if (!abort) {
+        internalFlushcache();
       }
+
+      List<StoreFile> result = new ArrayList<StoreFile>();
+      for (Store store : stores.values()) {
+        result.addAll(store.close());
+      }
+      this.closed.set(true);
+      LOG.info("Closed " + this);
+      return result;
     } finally {
-      newScannerLock.writeLock().unlock();
+      lock.writeLock().unlock();
     }
   }
 
@@ -649,7 +638,7 @@ public class HRegion implements HeapSize { // , Writable{
   private void cleanupTmpDir() throws IOException {
     FSUtils.deleteDirectory(this.fs, getTmpDir());
   }
-  
+
   /**
    * Get the temporary diretory for this region. This directory
    * will have its contents removed when the region is reopened.
@@ -703,12 +692,16 @@ public class HRegion implements HeapSize { // , Writable{
    */
   byte [] compactStores(final boolean majorCompaction)
   throws IOException {
-    if (this.closing.get() || this.closed.get()) {
-      LOG.debug("Skipping compaction on " + this + " because closing/closed");
+    if (this.closing.get()) {
+      LOG.debug("Skipping compaction on " + this + " because closing");
       return null;
     }
-    splitsAndClosesLock.readLock().lock();
+    lock.readLock().lock();
     try {
+      if (this.closed.get()) {
+        LOG.debug("Skipping compaction on " + this + " because closed");
+        return null;
+      }
       byte [] splitRow = null;
       if (this.closed.get()) {
         return splitRow;
@@ -747,7 +740,7 @@ public class HRegion implements HeapSize { // , Writable{
       }
       return splitRow;
     } finally {
-      splitsAndClosesLock.readLock().unlock();
+      lock.readLock().unlock();
     }
   }
 
@@ -772,42 +765,47 @@ public class HRegion implements HeapSize { // , Writable{
    * because a Snapshot was not properly persisted.
    */
   public boolean flushcache() throws IOException {
-    if (this.closed.get()) {
+    // fail-fast instead of waiting on the lock
+    if (this.closing.get()) {
+      LOG.debug("Skipping flush on " + this + " because closing");
       return false;
     }
-    synchronized (writestate) {
-      if (!writestate.flushing && writestate.writesEnabled) {
-        this.writestate.flushing = true;
-      } else {
-        if(LOG.isDebugEnabled()) {
-          LOG.debug("NOT flushing memstore for region " + this +
-            ", flushing=" +
-              writestate.flushing + ", writesEnabled=" +
-              writestate.writesEnabled);
-        }
+    lock.readLock().lock();
+    try {
+      if (this.closed.get()) {
+        LOG.debug("Skipping flush on " + this + " because closed");
         return false;
       }
-    }
-    try {
-      // Prevent splits and closes
-      splitsAndClosesLock.readLock().lock();
       try {
+        synchronized (writestate) {
+          if (!writestate.flushing && writestate.writesEnabled) {
+            this.writestate.flushing = true;
+          } else {
+            if (LOG.isDebugEnabled()) {
+              LOG.debug("NOT flushing memstore for region " + this +
+                  ", flushing=" +
+                  writestate.flushing + ", writesEnabled=" +
+                  writestate.writesEnabled);
+            }
+            return false;
+          }
+        }
         return internalFlushcache();
       } finally {
-        splitsAndClosesLock.readLock().unlock();
+        synchronized (writestate) {
+          writestate.flushing = false;
+          this.writestate.flushRequested = false;
+          writestate.notifyAll();
+        }
       }
     } finally {
-      synchronized (writestate) {
-        writestate.flushing = false;
-        this.writestate.flushRequested = false;
-        writestate.notifyAll();
-      }
+      lock.readLock().unlock();
     }
   }
 
   /**
    * Flush the memstore.
-   * 
+   *
    * Flushing the memstore is a little tricky. We have a lot of updates in the
    * memstore, all of which have also been written to the log. We need to
    * write those updates in the memstore out to disk, while being able to
@@ -915,38 +913,14 @@ public class HRegion implements HeapSize { // , Writable{
       for (StoreFlusher flusher : storeFlushers) {
         flusher.flushCache();
       }
-
-      Callable<Void> atomicWork = internalPreFlushcacheCommit();
-
-      LOG.debug("Caches flushed, doing commit now (which includes update scanners)");
-
-      /**
-       * Switch between memstore(snapshot) and the new store file
-       */
-      if (atomicWork != null) {
-        LOG.debug("internalPreFlushcacheCommit gives us work to do, acquiring newScannerLock");
-        newScannerLock.writeLock().lock();
-      }
-
-      try {
-        if (atomicWork != null) {
-          atomicWork.call();
-        }
-
-        // Switch snapshot (in memstore) -> new hfile (thus causing
-        // all the store scanners to reset/reseek).
-        for (StoreFlusher flusher : storeFlushers) {
-          boolean needsCompaction = flusher.commit();
-          if (needsCompaction) {
-            compactionRequested = true;
-          }
-        }
-      } finally {
-        if (atomicWork != null) {
-          newScannerLock.writeLock().unlock();
+      // Switch snapshot (in memstore) -> new hfile (thus causing
+      // all the store scanners to reset/reseek).
+      for (StoreFlusher flusher : storeFlushers) {
+        boolean needsCompaction = flusher.commit();
+        if (needsCompaction) {
+          compactionRequested = true;
         }
       }
-
       storeFlushers.clear();
 
       // Set down the memstore size by amount of flush.
@@ -973,7 +947,7 @@ public class HRegion implements HeapSize { // , Writable{
     //     and that all updates to the log for this regionName that have lower
     //     log-sequence-ids can be safely ignored.
     if (wal != null) {
-      wal.completeCacheFlush(getRegionName(),
+      wal.completeCacheFlush(this.regionInfo.getEncodedNameAsBytes(),
         regionInfo.getTableDesc().getName(), completeSequenceId,
         this.getRegionInfo().isMetaRegion());
     }
@@ -994,20 +968,6 @@ public class HRegion implements HeapSize { // , Writable{
     }
     return compactionRequested;
   }
-
-   /**
-    * A hook for sub classed wishing to perform operations prior to the cache
-    * flush commit stage.
-    *
-    * If a subclass wishes that an atomic update of their work and the
-    * flush commit stage happens, they should return a callable. The new scanner
-    * lock will be acquired and released.
-
-    * @throws java.io.IOException allow children to throw exception
-    */
-   protected Callable<Void> internalPreFlushcacheCommit() throws IOException {
-     return null;
-   }
 
    /**
    * Get the sequence number to be associated with this cache flush. Used by
@@ -1054,7 +1014,7 @@ public class HRegion implements HeapSize { // , Writable{
     // closest key is across all column families, since the data may be sparse
     KeyValue key = null;
     checkRow(row);
-    splitsAndClosesLock.readLock().lock();
+    startRegionOperation();
     try {
       Store store = getStore(family);
       KeyValue kv = new KeyValue(row, HConstants.LATEST_TIMESTAMP);
@@ -1067,7 +1027,7 @@ public class HRegion implements HeapSize { // , Writable{
       get.addFamily(family);
       return get(get, null);
     } finally {
-      splitsAndClosesLock.readLock().unlock();
+      closeRegionOperation();
     }
   }
 
@@ -1087,11 +1047,8 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   protected InternalScanner getScanner(Scan scan, List<KeyValueScanner> additionalScanners) throws IOException {
-    newScannerLock.readLock().lock();
+    startRegionOperation();
     try {
-      if (this.closed.get()) {
-        throw new NotServingRegionException("Region " + this + " closed");
-      }
       // Verify families are all valid
       if(scan.hasFamilies()) {
         for(byte [] family : scan.getFamilyMap().keySet()) {
@@ -1105,7 +1062,7 @@ public class HRegion implements HeapSize { // , Writable{
       return instantiateInternalScanner(scan, additionalScanners);
 
     } finally {
-      newScannerLock.readLock().unlock();
+      closeRegionOperation();
     }
   }
 
@@ -1147,7 +1104,7 @@ public class HRegion implements HeapSize { // , Writable{
     checkReadOnly();
     checkResources();
     Integer lid = null;
-    splitsAndClosesLock.readLock().lock();
+    startRegionOperation();
     try {
       byte [] row = delete.getRow();
       // If we did not pass an existing row lock, obtain a new one
@@ -1159,7 +1116,7 @@ public class HRegion implements HeapSize { // , Writable{
 
     } finally {
       if(lockid == null) releaseRowLock(lid);
-      splitsAndClosesLock.readLock().unlock();
+      closeRegionOperation();
     }
   }
 
@@ -1292,8 +1249,7 @@ public class HRegion implements HeapSize { // , Writable{
     // read lock, resources may run out.  For now, the thought is that this
     // will be extremely rare; we'll deal with it when it happens.
     checkResources();
-    splitsAndClosesLock.readLock().lock();
-
+    startRegionOperation();
     try {
       // We obtain a per-row lock, so other clients will block while one client
       // performs an update. The read lock is released by the client calling
@@ -1311,7 +1267,7 @@ public class HRegion implements HeapSize { // , Writable{
         if(lockid == null) releaseRowLock(lid);
       }
     } finally {
-      splitsAndClosesLock.readLock().unlock();
+      closeRegionOperation();
     }
   }
 
@@ -1330,12 +1286,12 @@ public class HRegion implements HeapSize { // , Writable{
       retCodes = new OperationStatusCode[operations.length];
       Arrays.fill(retCodes, OperationStatusCode.NOT_RUN);
     }
-    
+
     public boolean isDone() {
       return nextIndexToProcess == operations.length;
     }
   }
-  
+
   /**
    * Perform a batch put with no pre-specified locks
    * @see HRegion#put(Pair[])
@@ -1349,7 +1305,7 @@ public class HRegion implements HeapSize { // , Writable{
     }
     return put(putsAndLocks);
   }
-  
+
   /**
    * Perform a batch of puts.
    * @param putsAndLocks the list of puts paired with their requested lock IDs.
@@ -1358,18 +1314,18 @@ public class HRegion implements HeapSize { // , Writable{
   public OperationStatusCode[] put(Pair<Put, Integer>[] putsAndLocks) throws IOException {
     BatchOperationInProgress<Pair<Put, Integer>> batchOp =
       new BatchOperationInProgress<Pair<Put,Integer>>(putsAndLocks);
-    
+
     while (!batchOp.isDone()) {
       checkReadOnly();
       checkResources();
 
       long newSize;
-      splitsAndClosesLock.readLock().lock();
+      startRegionOperation();
       try {
         long addedSize = doMiniBatchPut(batchOp);
         newSize = memstoreSize.addAndGet(addedSize);
       } finally {
-        splitsAndClosesLock.readLock().unlock();
+        closeRegionOperation();
       }
       if (isFlushSize(newSize)) {
         requestFlush();
@@ -1435,7 +1391,7 @@ public class HRegion implements HeapSize { // , Writable{
             batchOp.operations[i].getFirst().getFamilyMap().values(),
             byteNow);
       }
-      
+
       // ------------------------------------
       // STEP 3. Write to WAL
       // ----------------------------------
@@ -1443,12 +1399,12 @@ public class HRegion implements HeapSize { // , Writable{
       for (int i = firstIndex; i < lastIndexExclusive; i++) {
         // Skip puts that were determined to be invalid during preprocessing
         if (batchOp.retCodes[i] != OperationStatusCode.NOT_RUN) continue;
-        
+
         Put p = batchOp.operations[i].getFirst();
         if (!p.getWriteToWAL()) continue;
         addFamilyMapToWALEdit(p.getFamilyMap(), walEdit);
       }
-      
+
       // Append the edit to WAL
       this.log.append(regionInfo, regionInfo.getTableDesc().getName(),
           walEdit, now);
@@ -1507,7 +1463,7 @@ public class HRegion implements HeapSize { // , Writable{
     if (!isPut && !(w instanceof Delete))
       throw new IOException("Action must be Put or Delete");
 
-    splitsAndClosesLock.readLock().lock();
+    startRegionOperation();
     try {
       RowLock lock = isPut ? ((Put)w).getRowLock() : ((Delete)w).getRowLock();
       Get get = new Get(row, lock);
@@ -1521,7 +1477,8 @@ public class HRegion implements HeapSize { // , Writable{
         result = get(get);
 
         boolean matches = false;
-        if (result.size() == 0 && expectedValue.length == 0) {
+        if (result.size() == 0 &&
+            (expectedValue == null || expectedValue.length == 0)) {
           matches = true;
         } else if (result.size() == 1) {
           //Compare the expected value with the actual value
@@ -1545,7 +1502,7 @@ public class HRegion implements HeapSize { // , Writable{
         if(lockId == null) releaseRowLock(lid);
       }
     } finally {
-      splitsAndClosesLock.readLock().unlock();
+      closeRegionOperation();
     }
   }
 
@@ -1563,28 +1520,6 @@ public class HRegion implements HeapSize { // , Writable{
       }
     }
   }
-
-//  /*
-//   * Utility method to verify values length.
-//   * @param batchUpdate The update to verify
-//   * @throws IOException Thrown if a value is too long
-//   */
-//  private void validateValuesLength(Put put)
-//  throws IOException {
-//    Map<byte[], List<KeyValue>> families = put.getFamilyMap();
-//    for(Map.Entry<byte[], List<KeyValue>> entry : families.entrySet()) {
-//      HColumnDescriptor hcd =
-//        this.regionInfo.getTableDesc().getFamily(entry.getKey());
-//      int maxLen = hcd.getMaxValueLength();
-//      for(KeyValue kv : entry.getValue()) {
-//        if(kv.getValueLength() > maxLen) {
-//          throw new ValueOverMaxLengthException("Value in column "
-//            + Bytes.toString(kv.getColumn()) + " is too long. "
-//            + kv.getValueLength() + " > " + maxLen);
-//        }
-//      }
-//    }
-//  }
 
   /*
    * Check if resources to support an update.
@@ -1707,7 +1642,7 @@ public class HRegion implements HeapSize { // , Writable{
       for (Map.Entry<byte[], List<KeyValue>> e : familyMap.entrySet()) {
         byte[] family = e.getKey();
         List<KeyValue> edits = e.getValue();
-  
+
         Store store = getStore(family);
         for (KeyValue kv: edits) {
           kv.setMemstoreTS(w.getWriteNumber());
@@ -1747,7 +1682,7 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   private void requestFlush() {
-    if (this.flushListener == null) {
+    if (this.flushRequester == null) {
       return;
     }
     synchronized (writestate) {
@@ -1757,7 +1692,7 @@ public class HRegion implements HeapSize { // , Writable{
       writestate.flushRequested = true;
     }
     // Make request outside of synchronize block; HBASE-818.
-    this.flushListener.request(this);
+    this.flushRequester.requestFlush(this);
     if (LOG.isDebugEnabled()) {
       LOG.debug("Flush requested on " + this);
     }
@@ -1778,7 +1713,7 @@ public class HRegion implements HeapSize { // , Writable{
    * <p>We can ignore any log message that has a sequence ID that's equal to or
    * lower than minSeqId.  (Because we know such log messages are already
    * reflected in the HFiles.)
-   * 
+   *
    * <p>While this is running we are putting pressure on memory yet we are
    * outside of our usual accounting because we are not yet an onlined region
    * (this stuff is being run as part of Region initialization).  This means
@@ -1787,7 +1722,7 @@ public class HRegion implements HeapSize { // , Writable{
    * we're not yet online so our relative sequenceids are not yet aligned with
    * HLog sequenceids -- not till we come up online, post processing of split
    * edits.
-   * 
+   *
    * <p>But to help relieve memory pressure, at least manage our own heap size
    * flushing if are in excess of per-region limits.  Flushing, though, we have
    * to be careful and avoid using the regionserver/hlog sequenceid.  Its running
@@ -1797,7 +1732,7 @@ public class HRegion implements HeapSize { // , Writable{
    * in this region and with its split editlogs, then we could miss edits the
    * next time we go to recover. So, we have to flush inline, using seqids that
    * make sense in a this single region context only -- until we online.
-   * 
+   *
    * @param regiondir
    * @param minSeqId Any edit found in split editlogs needs to be in excess of
    * this minSeqId to be applied, else its skipped.
@@ -1903,7 +1838,7 @@ public class HRegion implements HeapSize { // , Writable{
         // Check this edit is for me. Also, guard against writing the special
         // METACOLUMN info such as HBASE::CACHEFLUSH entries
         if (kv.matchingFamily(HLog.METAFAMILY) ||
-            !Bytes.equals(key.getRegionName(), this.regionInfo.getRegionName())) {
+            !Bytes.equals(key.getEncodedRegionName(), this.regionInfo.getEncodedNameAsBytes())) {
           skippedEdits++;
           continue;
         }
@@ -2020,7 +1955,12 @@ public class HRegion implements HeapSize { // , Writable{
    * @return The id of the held lock.
    */
   public Integer obtainRowLock(final byte [] row) throws IOException {
-    return internalObtainRowLock(row, true);
+    startRegionOperation();
+    try {
+      return internalObtainRowLock(row, true);
+    } finally {
+      closeRegionOperation();
+    }
   }
 
   /**
@@ -2030,9 +1970,14 @@ public class HRegion implements HeapSize { // , Writable{
    * @see HRegion#obtainRowLock(byte[])
    */
   public Integer tryObtainRowLock(final byte[] row) throws IOException {
-    return internalObtainRowLock(row, false);
+    startRegionOperation();
+    try {
+      return internalObtainRowLock(row, false);
+    } finally {
+      closeRegionOperation();
+    }
   }
-  
+
   /**
    * Obtains or tries to obtain the given row lock.
    * @param waitForLock if true, will block until the lock is available.
@@ -2042,11 +1987,8 @@ public class HRegion implements HeapSize { // , Writable{
   private Integer internalObtainRowLock(final byte[] row, boolean waitForLock)
   throws IOException {
     checkRow(row);
-    splitsAndClosesLock.readLock().lock();
+    startRegionOperation();
     try {
-      if (this.closed.get()) {
-        throw new NotServingRegionException(this + " is closed");
-      }
       synchronized (lockedRows) {
         while (lockedRows.contains(row)) {
           if (!waitForLock) {
@@ -2080,10 +2022,10 @@ public class HRegion implements HeapSize { // , Writable{
         return lockId;
       }
     } finally {
-      splitsAndClosesLock.readLock().unlock();
+      closeRegionOperation();
     }
   }
-  
+
   /**
    * Used by unit tests.
    * @param lockid
@@ -2144,24 +2086,9 @@ public class HRegion implements HeapSize { // , Writable{
     return lid;
   }
 
-  private void waitOnRowLocks() {
-    synchronized (lockedRows) {
-      while (!this.lockedRows.isEmpty()) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Waiting on " + this.lockedRows.size() + " row locks");
-        }
-        try {
-          this.lockedRows.wait();
-        } catch (InterruptedException e) {
-          // Catch. Let while test determine loop-end.
-        }
-      }
-    }
-  }
-
   public void bulkLoadHFile(String hfilePath, byte[] familyName)
   throws IOException {
-    splitsAndClosesLock.readLock().lock();
+    startRegionOperation();
     try {
       Store store = getStore(familyName);
       if (store == null) {
@@ -2170,7 +2097,7 @@ public class HRegion implements HeapSize { // , Writable{
       }
       store.bulkLoadHFile(hfilePath);
     } finally {
-      splitsAndClosesLock.readLock().unlock();
+      closeRegionOperation();
     }
 
   }
@@ -2215,6 +2142,9 @@ public class HRegion implements HeapSize { // , Writable{
     private boolean filterClosed = false;
     private long readPt;
 
+    public HRegionInfo getRegionName() {
+      return regionInfo;
+    }
     RegionScanner(Scan scan, List<KeyValueScanner> additionalScanners) throws IOException {
       //DebugPrint.println("HRegionScanner.<init>");
       this.filter = scan.getFilter();
@@ -2263,24 +2193,24 @@ public class HRegion implements HeapSize { // , Writable{
             "after we renewed it. Could be caused by a very slow scanner " +
             "or a lengthy garbage collection");
       }
-      if (closing.get() || closed.get()) {
-        close();
-        throw new NotServingRegionException(regionInfo.getRegionNameAsString() +
-          " is closing=" + closing.get() + " or closed=" + closed.get());
+      startRegionOperation();
+      try {
+
+        // This could be a new thread from the last time we called next().
+        ReadWriteConsistencyControl.setThreadReadPoint(this.readPt);
+
+        results.clear();
+        boolean returnResult = nextInternal(limit);
+
+        outResults.addAll(results);
+        resetFilters();
+        if (isFilterDone()) {
+          return false;
+        }
+        return returnResult;
+      } finally {
+        closeRegionOperation();
       }
-
-      // This could be a new thread from the last time we called next().
-      ReadWriteConsistencyControl.setThreadReadPoint(this.readPt);
-
-      results.clear();
-      boolean returnResult = nextInternal(limit);
-
-      outResults.addAll(results);
-      resetFilters();
-      if (isFilterDone()) {
-        return false;
-      }
-      return returnResult;
     }
 
     public synchronized boolean next(List<KeyValue> outResults)
@@ -2449,17 +2379,17 @@ public class HRegion implements HeapSize { // , Writable{
     fs.mkdirs(regionDir);
     HRegion region = HRegion.newHRegion(tableDir,
       new HLog(fs, new Path(regionDir, HConstants.HREGION_LOGDIR_NAME),
-          new Path(regionDir, HConstants.HREGION_OLDLOGDIR_NAME), conf, null),
+          new Path(regionDir, HConstants.HREGION_OLDLOGDIR_NAME), conf),
       fs, conf, info, null);
     region.initialize();
     return region;
   }
 
   /**
-   * Convenience method to open a HRegion outside of an HRegionServer context.
+   * Open a Region.
    * @param info Info for region to be opened.
    * @param rootDir Root directory for HBase instance
-   * @param log HLog for region to use. This method will call
+   * @param wal HLog for region to use. This method will call
    * HLog#setSequenceNumber(long) passing the result of the call to
    * HRegion#getMinSequenceId() to ensure the log id is properly kept
    * up.  HRegionStore does this every time it opens a new region.
@@ -2468,8 +2398,29 @@ public class HRegion implements HeapSize { // , Writable{
    *
    * @throws IOException
    */
-  public static HRegion openHRegion(final HRegionInfo info, final Path rootDir,
-    final HLog log, final Configuration conf)
+  public static HRegion openHRegion(final HRegionInfo info, final HLog wal,
+      final Configuration conf)
+  throws IOException {
+    return openHRegion(info, wal, conf, null, null);
+  }
+
+  /**
+   * Open a Region.
+   * @param info Info for region to be opened.
+   * @param wal HLog for region to use. This method will call
+   * HLog#setSequenceNumber(long) passing the result of the call to
+   * HRegion#getMinSequenceId() to ensure the log id is properly kept
+   * up.  HRegionStore does this every time it opens a new region.
+   * @param conf
+   * @param flusher An interface we can request flushes against.
+   * @param reporter An interface we can report progress against.
+   * @return new HRegion
+   *
+   * @throws IOException
+   */
+  public static HRegion openHRegion(final HRegionInfo info, final HLog wal,
+    final Configuration conf, final FlushRequester flusher,
+    final Progressable reporter)
   throws IOException {
     if (LOG.isDebugEnabled()) {
       LOG.debug("Opening region: " + info);
@@ -2477,13 +2428,27 @@ public class HRegion implements HeapSize { // , Writable{
     if (info == null) {
       throw new NullPointerException("Passed region info is null");
     }
-    HRegion r = HRegion.newHRegion(
-        HTableDescriptor.getTableDir(rootDir, info.getTableDesc().getName()),
-        log, FileSystem.get(conf), conf, info, null);
-    long seqid = r.initialize();
-    // If seqid  > current wal seqid, the wal seqid is updated.
-    if (log != null) log.setSequenceNumber(seqid);
-    return r;
+    Path dir = HTableDescriptor.getTableDir(FSUtils.getRootDir(conf),
+      info.getTableDesc().getName());
+    HRegion r = HRegion.newHRegion(dir, wal, FileSystem.get(conf), conf, info,
+      flusher);
+    return r.openHRegion(reporter);
+  }
+
+  /**
+   * Open HRegion.
+   * Calls initialize and sets sequenceid.
+   * @param reporter
+   * @return Returns <code>this</code>
+   * @throws IOException
+   */
+  HRegion openHRegion(final Progressable reporter)
+  throws IOException {
+    long seqid = initialize(reporter);
+    if (this.log != null) {
+      this.log.setSequenceNumber(seqid);
+    }
+    return this;
   }
 
   /**
@@ -2916,47 +2881,52 @@ public class HRegion implements HeapSize { // , Writable{
     checkRow(row);
     boolean flush = false;
     // Lock row
-    Integer lid = obtainRowLock(row);
     long result = amount;
+    startRegionOperation();
     try {
-      Store store = stores.get(family);
+      Integer lid = obtainRowLock(row);
+      try {
+        Store store = stores.get(family);
 
-      // Get the old value:
-      Get get = new Get(row);
-      get.addColumn(family, qualifier);
+        // Get the old value:
+        Get get = new Get(row);
+        get.addColumn(family, qualifier);
 
-      List<KeyValue> results = get(get);
+        List<KeyValue> results = get(get);
 
-      if (!results.isEmpty()) {
-        KeyValue kv = results.get(0);
-        byte [] buffer = kv.getBuffer();
-        int valueOffset = kv.getValueOffset();
-        result += Bytes.toLong(buffer, valueOffset, Bytes.SIZEOF_LONG);
+        if (!results.isEmpty()) {
+          KeyValue kv = results.get(0);
+          byte [] buffer = kv.getBuffer();
+          int valueOffset = kv.getValueOffset();
+          result += Bytes.toLong(buffer, valueOffset, Bytes.SIZEOF_LONG);
+        }
+
+        // bulid the KeyValue now:
+        KeyValue newKv = new KeyValue(row, family,
+            qualifier, EnvironmentEdgeManager.currentTimeMillis(),
+            Bytes.toBytes(result));
+
+        // now log it:
+        if (writeToWAL) {
+          long now = EnvironmentEdgeManager.currentTimeMillis();
+          WALEdit walEdit = new WALEdit();
+          walEdit.add(newKv);
+          this.log.append(regionInfo, regionInfo.getTableDesc().getName(),
+            walEdit, now);
+        }
+
+        // Now request the ICV to the store, this will set the timestamp
+        // appropriately depending on if there is a value in memcache or not.
+        // returns the
+        long size = store.updateColumnValue(row, family, qualifier, result);
+
+        size = this.memstoreSize.addAndGet(size);
+        flush = isFlushSize(size);
+      } finally {
+        releaseRowLock(lid);
       }
-
-      // bulid the KeyValue now:
-      KeyValue newKv = new KeyValue(row, family,
-          qualifier, EnvironmentEdgeManager.currentTimeMillis(),
-          Bytes.toBytes(result));
-
-      // now log it:
-      if (writeToWAL) {
-        long now = EnvironmentEdgeManager.currentTimeMillis();
-        WALEdit walEdit = new WALEdit();
-        walEdit.add(newKv);
-        this.log.append(regionInfo, regionInfo.getTableDesc().getName(),
-          walEdit, now);
-      }
-
-      // Now request the ICV to the store, this will set the timestamp
-      // appropriately depending on if there is a value in memcache or not.
-      // returns the
-      long size = store.updateColumnValue(row, family, qualifier, result);
-
-      size = this.memstoreSize.addAndGet(size);
-      flush = isFlushSize(size);
     } finally {
-      releaseRowLock(lid);
+      closeRegionOperation();
     }
 
     if (flush) {
@@ -2983,7 +2953,7 @@ public class HRegion implements HeapSize { // , Writable{
 
   public static final long FIXED_OVERHEAD = ClassSize.align(
       (4 * Bytes.SIZEOF_LONG) + Bytes.SIZEOF_BOOLEAN +
-      (19 * ClassSize.REFERENCE) + ClassSize.OBJECT + Bytes.SIZEOF_INT);
+      (18 * ClassSize.REFERENCE) + ClassSize.OBJECT + Bytes.SIZEOF_INT);
 
   public static final long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +
       ClassSize.OBJECT + (2 * ClassSize.ATOMIC_BOOLEAN) +
@@ -3020,6 +2990,97 @@ public class HRegion implements HeapSize { // , Writable{
       "passed region.");
     System.out.println("Default outputs scan of passed region.");
     System.exit(1);
+  }
+
+  /**
+   * Registers a new CoprocessorProtocol subclass and instance to
+   * be available for handling {@link HRegion#exec(Exec)} calls.
+   *
+   * <p>
+   * Only a single protocol type/handler combination may be registered per region.
+   * After the first registration, subsequent calls with the same protocol type
+   * will fail with a return value of {@code false}.
+   * </p>
+   * @param protocol a {@code CoprocessorProtocol} subinterface defining the protocol methods
+   * @param handler an instance implementing the interface
+   * @param <T> the protocol type
+   * @return {@code true} if the registration was successful, {@code false} otherwise
+   */
+  public <T extends CoprocessorProtocol> boolean registerProtocol(
+      Class<T> protocol, T handler) {
+
+    /* No stacking of protocol handlers is currently allowed.  The
+     * first to claim wins!
+     */
+    if (protocolHandlers.containsKey(protocol)) {
+      LOG.error("Protocol "+protocol.getName()+
+          " already registered, rejecting request from "+
+          handler
+      );
+      return false;
+    }
+
+    protocolHandlers.putInstance(protocol, handler);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Registered protocol handler: region="+
+          Bytes.toStringBinary(getRegionName())+" protocol="+protocol.getName());
+    }
+    return true;
+  }
+
+  /**
+   * Executes a single {@link org.apache.hadoop.hbase.ipc.CoprocessorProtocol}
+   * method using the registered protocol handlers.
+   * {@link CoprocessorProtocol} implementations must be registered via the
+   * {@link org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)}
+   * method before they are available.
+   *
+   * @param call an {@code Exec} instance identifying the protocol, method name,
+   *     and parameters for the method invocation
+   * @return an {@code ExecResult} instance containing the region name of the
+   *     invocation and the return value
+   * @throws IOException if no registered protocol handler is found or an error
+   *     occurs during the invocation
+   * @see org.apache.hadoop.hbase.regionserver.HRegion#registerProtocol(Class, org.apache.hadoop.hbase.ipc.CoprocessorProtocol)
+   */
+  public ExecResult exec(Exec call)
+      throws IOException {
+    Class<? extends CoprocessorProtocol> protocol = call.getProtocol();
+    if (!protocolHandlers.containsKey(protocol)) {
+      throw new HBaseRPC.UnknownProtocolException(protocol,
+          "No matching handler for protocol "+protocol.getName()+
+          " in region "+Bytes.toStringBinary(getRegionName()));
+    }
+
+    CoprocessorProtocol handler = protocolHandlers.getInstance(protocol);
+    Object value;
+    Class<?> returnType;
+
+    try {
+      Method method = protocol.getMethod(
+          call.getMethodName(), call.getParameterTypes());
+      method.setAccessible(true);
+      returnType = method.getReturnType();
+
+      value = method.invoke(handler, call.getParameters());
+    } catch (InvocationTargetException e) {
+      Throwable target = e.getTargetException();
+      if (target instanceof IOException) {
+        throw (IOException)target;
+      }
+      IOException ioe = new IOException(target.toString());
+      ioe.setStackTrace(target.getStackTrace());
+      throw ioe;
+    } catch (Throwable e) {
+      if (!(e instanceof IOException)) {
+        LOG.error("Unexpected throwable object ", e);
+      }
+      IOException ioe = new IOException(e.toString());
+      ioe.setStackTrace(e.getStackTrace());
+      throw ioe;
+    }
+
+    return new ExecResult(getRegionName(), returnType, value);
   }
 
   /*
@@ -3101,6 +3162,34 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   /**
+   * This method needs to be called before any public call that reads or
+   * modifies data. It has to be called just before a try.
+   * #closeRegionOperation needs to be called in the try's finally block
+   * Acquires a read lock and checks if the region is closing or closed.
+   * @throws NotServingRegionException when the region is closing or closed
+   */
+  private void startRegionOperation() throws NotServingRegionException {
+    if (this.closing.get()) {
+      throw new NotServingRegionException(regionInfo.getRegionNameAsString() +
+          " is closing");
+    }
+    lock.readLock().lock();
+    if (this.closed.get()) {
+      lock.readLock().unlock();
+      throw new NotServingRegionException(regionInfo.getRegionNameAsString() +
+          " is closed");
+    }
+  }
+
+  /**
+   * Closes the lock. This needs to be called in the finally block corresponding
+   * to the try block of #startRegionOperation
+   */
+  private void closeRegionOperation(){
+    lock.readLock().unlock();
+  }
+
+  /**
    * A mocked list implementaion - discards all updates.
    */
   private static final List<KeyValue> MOCKED_LIST = new AbstractList<KeyValue>() {
@@ -3156,7 +3245,7 @@ public class HRegion implements HeapSize { // , Writable{
         + EnvironmentEdgeManager.currentTimeMillis());
     final Path oldLogDir = new Path(c.get("hbase.tmp.dir"),
         HConstants.HREGION_OLDLOGDIR_NAME);
-    final HLog log = new HLog(fs, logdir, oldLogDir, c, null);
+    final HLog log = new HLog(fs, logdir, oldLogDir, c);
     try {
       processTable(fs, tableDir, log, c, majorCompact);
      } finally {
