@@ -64,7 +64,7 @@ import org.apache.zookeeper.KeeperException;
  * <p>This class is not thread safe.  Caller needs ensure split is run by
  * one thread only.
  */
-class SplitTransaction {
+public class SplitTransaction {
   private static final Log LOG = LogFactory.getLog(SplitTransaction.class);
   private static final String SPLITDIR = "splits";
 
@@ -120,7 +120,7 @@ class SplitTransaction {
    * @param r Region to split
    * @param splitrow Row to split around
    */
-  SplitTransaction(final HRegion r, final byte [] splitrow) {
+  public SplitTransaction(final HRegion r, final byte [] splitrow) {
     this.parent = r;
     this.splitrow = splitrow;
     this.splitdir = getSplitDir(this.parent);
@@ -176,11 +176,16 @@ class SplitTransaction {
    * @return Regions created
    * @see #rollback(OnlineRegions)
    */
-  PairOfSameType<HRegion> execute(final Server server,
+  public PairOfSameType<HRegion> execute(final Server server,
       final RegionServerServices services)
   throws IOException {
     LOG.info("Starting split of region " + this.parent);
     assert !this.parent.lock.writeLock().isHeldByCurrentThread() : "Unsafe to hold write lock while performing RPCs";
+
+    // Coprocessor callback
+    if (this.parent.getCoprocessorHost() != null) {
+      this.parent.getCoprocessorHost().preSplit();
+    }
 
     // If true, no cluster to write meta edits into.
     boolean testing =
@@ -242,6 +247,11 @@ class SplitTransaction {
       } catch (InterruptedException e) {
         server.abort("Exception running daughter opens", e);
       }
+    }
+
+    // Coprocessor callback
+    if (this.parent.getCoprocessorHost() != null) {
+      this.parent.getCoprocessorHost().postSplit(a,b);
     }
 
     // Leaving here, the splitdir with its dross will be in place but since the
