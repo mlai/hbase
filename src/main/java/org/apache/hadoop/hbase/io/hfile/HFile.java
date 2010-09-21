@@ -19,6 +19,7 @@
  */
 package org.apache.hadoop.hbase.io.hfile;
 
+import java.io.BufferedInputStream;
 import java.io.Closeable;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -1051,10 +1052,15 @@ public class HFile {
         // decompressor reading into next block -- IIRC, it just grabs a
         // bunch of data w/o regard to whether decompressor is coming to end of a
         // decompression.
+
+        // We use a buffer of DEFAULT_BLOCKSIZE size.  This might be extreme.
+        // Could maybe do with less. Study and figure it: TODO
         InputStream is = this.compressAlgo.createDecompressionStream(
-          new BoundedRangeFileInputStream(this.istream, offset, compressedSize,
-            pread),
-          decompressor, 0);
+            new BufferedInputStream(
+                new BoundedRangeFileInputStream(this.istream, offset, compressedSize,
+                                                pread),
+                Math.min(DEFAULT_BLOCKSIZE, compressedSize)),
+            decompressor, 0);
         buf = ByteBuffer.allocate(decompressedSize);
         IOUtils.readFully(is, buf.array(), 0, buf.capacity());
         is.close();
@@ -1194,7 +1200,8 @@ public class HFile {
           return null;
         }
         return new KeyValue(this.block.array(),
-            this.block.arrayOffset() + this.block.position() - 8);
+            this.block.arrayOffset() + this.block.position() - 8,
+            this.currKeyLen+this.currValueLen+8);
       }
 
       public ByteBuffer getKey() {
@@ -1238,16 +1245,17 @@ public class HFile {
             return false;
           }
           block = reader.readBlock(this.currBlock, this.cacheBlocks, this.pread);
-          currKeyLen = block.getInt();
-          currValueLen = block.getInt();
+          currKeyLen = Bytes.toInt(block.array(), block.arrayOffset()+block.position(), 4);
+          currValueLen = Bytes.toInt(block.array(), block.arrayOffset()+block.position()+4, 4);
+          block.position(block.position()+8);
           blockFetches++;
           return true;
         }
         // LOG.debug("rem:" + block.remaining() + " p:" + block.position() +
         // " kl: " + currKeyLen + " kv: " + currValueLen);
-
-        currKeyLen = block.getInt();
-        currValueLen = block.getInt();
+        currKeyLen = Bytes.toInt(block.array(), block.arrayOffset()+block.position(), 4);
+        currValueLen = Bytes.toInt(block.array(), block.arrayOffset()+block.position()+4, 4);
+        block.position(block.position()+8);
         return true;
       }
 
@@ -1825,6 +1833,8 @@ public class HFile {
       // get configuration, file system and get list of files
       Configuration conf = HBaseConfiguration.create();
       conf.set("fs.defaultFS",
+        conf.get(org.apache.hadoop.hbase.HConstants.HBASE_DIR));
+      conf.set("fs.default.name",
         conf.get(org.apache.hadoop.hbase.HConstants.HBASE_DIR));
       FileSystem fs = FileSystem.get(conf);
       ArrayList<Path> files = new ArrayList<Path>();

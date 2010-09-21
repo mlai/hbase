@@ -19,62 +19,58 @@
  */
 package org.apache.hadoop.hbase.client;
 
+import java.io.IOException;
+import java.lang.reflect.Array;
+import java.lang.reflect.Proxy;
+import java.lang.reflect.UndeclaredThrowableException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.common.collect.Maps;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.Abortable;
 import org.apache.hadoop.hbase.DoNotRetryIOException;
-import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HRegionLocation;
 import org.apache.hadoop.hbase.HServerAddress;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.MasterAddressTracker;
 import org.apache.hadoop.hbase.MasterNotRunningException;
-import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.RemoteExceptionHandler;
 import org.apache.hadoop.hbase.TableNotFoundException;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
 import org.apache.hadoop.hbase.client.MetaScanner.MetaScannerVisitor;
-import org.apache.hadoop.hbase.ipc.HBaseRPC;
-import org.apache.hadoop.hbase.ipc.HBaseRPCProtocolVersion;
-import org.apache.hadoop.hbase.ipc.HMasterInterface;
-import org.apache.hadoop.hbase.ipc.HRegionInterface;
+import org.apache.hadoop.hbase.ipc.*;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.util.MetaUtils;
 import org.apache.hadoop.hbase.util.Pair;
 import org.apache.hadoop.hbase.util.SoftValueSortedMap;
 import org.apache.hadoop.hbase.util.Writables;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWrapper;
+import org.apache.hadoop.hbase.zookeeper.RootRegionTracker;
+import org.apache.hadoop.hbase.zookeeper.ZKTableDisable;
+import org.apache.hadoop.hbase.zookeeper.ZKUtil;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.ipc.RemoteException;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.Watcher;
-import org.apache.zookeeper.Watcher.Event.KeeperState;
-
-import java.io.IOException;
-import java.lang.reflect.UndeclaredThrowableException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.Map.Entry;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.CopyOnWriteArraySet;
+import org.apache.zookeeper.KeeperException;
 
 /**
- * A non-instantiable class that manages connections to multiple tables in
- * multiple HBase instances.
- *
+ * A non-instantiable class that manages connections to tables.
  * Used by {@link HTable} and {@link HBaseAdmin}
  */
 @SuppressWarnings("serial")
@@ -89,45 +85,43 @@ public class HConnectionManager {
     });
   }
 
+  static final int MAX_CACHED_HBASE_INSTANCES = 31;
+
+  // A LRU Map of Configuration hashcode -> TableServers. We set instances to 31.
+  // The zk default max connections to the ensemble from the one client is 30 so
+  // should run into zk issues before hit this value of 31.
+  private static final Map<Configuration, HConnectionImplementation> HBASE_INSTANCES =
+    new LinkedHashMap<Configuration, HConnectionImplementation>
+      ((int) (MAX_CACHED_HBASE_INSTANCES/0.75F)+1, 0.75F, true) {
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<Configuration, HConnectionImplementation> eldest) {
+        return size() > MAX_CACHED_HBASE_INSTANCES;
+      }
+  };
+
   /*
-   * Not instantiable.
+   * Non-instantiable.
    */
   protected HConnectionManager() {
     super();
   }
 
-  private static final int MAX_CACHED_HBASE_INSTANCES=31;
-  // A LRU Map of master HBaseConfiguration -> connection information for that
-  // instance. The objects it contains are mutable and hence require
-  // synchronized access to them.  We set instances to 31.  The zk default max
-  // connections is 30 so should run into zk issues before hit this value of 31.
-  private static
-  final Map<Integer, TableServers> HBASE_INSTANCES =
-    new LinkedHashMap<Integer, TableServers>
-      ((int) (MAX_CACHED_HBASE_INSTANCES/0.75F)+1, 0.75F, true) {
-      @Override
-      protected boolean removeEldestEntry(Map.Entry<Integer, TableServers> eldest) {
-        return size() > MAX_CACHED_HBASE_INSTANCES;
-      }
-  };
-
-  private static final Map<String, ClientZKWatcher> ZK_WRAPPERS =
-    new HashMap<String, ClientZKWatcher>();
-
   /**
-   * Get the connection object for the instance specified by the configuration
-   * If no current connection exists, create a new connection for that instance
+   * Get the connection that goes with the passed <code>conf</code> configuration.
+   * If no current connection exists, method creates a new connection for the
+   * passed <code>conf</code> instance.
    * @param conf configuration
-   * @return HConnection object for the instance specified by the configuration
+   * @return HConnection object for <code>conf</code>
+   * @throws ZooKeeperConnectionException
    */
-  public static HConnection getConnection(Configuration conf) {
-    TableServers connection;
-    Integer key = HBaseConfiguration.hashCode(conf);
+  public static HConnection getConnection(Configuration conf)
+  throws ZooKeeperConnectionException {
+    HConnectionImplementation connection;
     synchronized (HBASE_INSTANCES) {
-      connection = HBASE_INSTANCES.get(key);
+      connection = HBASE_INSTANCES.get(conf);
       if (connection == null) {
-        connection = new TableServers(conf);
-        HBASE_INSTANCES.put(key, connection);
+        connection = new HConnectionImplementation(conf);
+        HBASE_INSTANCES.put(conf, connection);
       }
     }
     return connection;
@@ -138,11 +132,9 @@ public class HConnectionManager {
    * @param conf configuration
    * @param stopProxy stop the proxy as well
    */
-  public static void deleteConnectionInfo(Configuration conf,
-      boolean stopProxy) {
+  public static void deleteConnection(Configuration conf, boolean stopProxy) {
     synchronized (HBASE_INSTANCES) {
-      Integer key = HBaseConfiguration.hashCode(conf);
-      TableServers t = HBASE_INSTANCES.remove(key);
+      HConnectionImplementation t = HBASE_INSTANCES.remove(conf);
       if (t != null) {
         t.close(stopProxy);
       }
@@ -152,98 +144,14 @@ public class HConnectionManager {
   /**
    * Delete information for all connections.
    * @param stopProxy stop the proxy as well
+   * @throws IOException
    */
   public static void deleteAllConnections(boolean stopProxy) {
     synchronized (HBASE_INSTANCES) {
-      for (TableServers t : HBASE_INSTANCES.values()) {
+      for (HConnectionImplementation t : HBASE_INSTANCES.values()) {
         if (t != null) {
           t.close(stopProxy);
         }
-      }
-    }
-    synchronized (ZK_WRAPPERS) {
-      for (ClientZKWatcher watch : ZK_WRAPPERS.values()) {
-        watch.resetZooKeeper();
-      }
-    }
-  }
-
-  /**
-   * Get a watcher of a zookeeper connection for a given quorum address.
-   * If the connection isn't established, a new one is created.
-   * This acts like a multiton.
-   * @param conf configuration
-   * @return ZKW watcher
-   * @throws IOException if a remote or network exception occurs
-   */
-  public static synchronized ClientZKWatcher getClientZooKeeperWatcher(
-      Configuration conf) throws IOException {
-    if (!ZK_WRAPPERS.containsKey(
-        ZooKeeperWrapper.getZookeeperClusterKey(conf))) {
-      ZK_WRAPPERS.put(ZooKeeperWrapper.getZookeeperClusterKey(conf),
-          new ClientZKWatcher(conf));
-    }
-    return ZK_WRAPPERS.get(ZooKeeperWrapper.getZookeeperClusterKey(conf));
-  }
-
-  /**
-   * This class is responsible to handle connection and reconnection
-   * to a zookeeper quorum.
-   *
-   */
-  public static class ClientZKWatcher implements Watcher {
-
-    static final Log LOG = LogFactory.getLog(ClientZKWatcher.class);
-    private ZooKeeperWrapper zooKeeperWrapper;
-    private Configuration conf;
-
-    /**
-     * Takes a configuration to pass it to ZKW but won't instanciate it
-     * @param conf configuration
-     */
-    public ClientZKWatcher(Configuration conf) {
-      this.conf = conf;
-    }
-
-    /**
-     * Called by ZooKeeper when an event occurs on our connection. We use this to
-     * detect our session expiring. When our session expires, we have lost our
-     * connection to ZooKeeper. Our handle is dead, and we need to recreate it.
-     *
-     * See http://hadoop.apache.org/zookeeper/docs/current/zookeeperProgrammers.html#ch_zkSessions
-     * for more information.
-     *
-     * @param event WatchedEvent witnessed by ZooKeeper.
-     */
-    public void process(final WatchedEvent event) {
-      final KeeperState state = event.getState();
-      if (!state.equals(KeeperState.SyncConnected)) {
-        LOG.warn("No longer connected to ZooKeeper, current state: " + state);
-        resetZooKeeper();
-      }
-    }
-
-    /**
-     * Get this watcher's ZKW, instantiate it if necessary.
-     * @return ZKW
-     * @throws java.io.IOException if a remote or network exception occurs
-     */
-    public synchronized ZooKeeperWrapper getZooKeeperWrapper() throws IOException {
-      if (zooKeeperWrapper == null) {
-        zooKeeperWrapper =
-            ZooKeeperWrapper.createInstance(conf, HConnectionManager.class.getName());
-        zooKeeperWrapper.registerListener(this);
-      }
-      return zooKeeperWrapper;
-    }
-
-    /**
-     * Clear this connection to zookeeper.
-     */
-    private synchronized void resetZooKeeper() {
-      if (zooKeeperWrapper != null) {
-        zooKeeperWrapper.close();
-        zooKeeperWrapper = null;
       }
     }
   }
@@ -252,10 +160,12 @@ public class HConnectionManager {
    * It is provided for unit test cases which verify the behavior of region
    * location cache prefetch.
    * @return Number of cached regions for the table.
+   * @throws ZooKeeperConnectionException
    */
   static int getCachedRegionCount(Configuration conf,
-      byte[] tableName) {
-    TableServers connection = (TableServers)getConnection(conf);
+      byte[] tableName)
+  throws ZooKeeperConnectionException {
+    HConnectionImplementation connection = (HConnectionImplementation)getConnection(conf);
     return connection.getNumberOfCachedRegionLocations(tableName);
   }
 
@@ -263,16 +173,17 @@ public class HConnectionManager {
    * It's provided for unit test cases which verify the behavior of region
    * location cache prefetch.
    * @return true if the region where the table and row reside is cached.
+   * @throws ZooKeeperConnectionException
    */
   static boolean isRegionCached(Configuration conf,
-      byte[] tableName, byte[] row) {
-    TableServers connection = (TableServers)getConnection(conf);
+      byte[] tableName, byte[] row) throws ZooKeeperConnectionException {
+    HConnectionImplementation connection = (HConnectionImplementation)getConnection(conf);
     return connection.isRegionCached(tableName, row);
   }
 
-  /* Encapsulates finding the servers for an HBase instance */
-  static class TableServers implements ServerConnection {
-    static final Log LOG = LogFactory.getLog(TableServers.class);
+  /* Encapsulates connection to zookeeper and regionservers.*/
+  static class HConnectionImplementation implements HConnection, Abortable {
+    static final Log LOG = LogFactory.getLog(HConnectionImplementation.class);
     private final Class<? extends HRegionInterface> serverInterfaceClass;
     private final long pause;
     private final int numRetries;
@@ -284,20 +195,26 @@ public class HConnectionManager {
     private volatile boolean closed;
     private volatile HMasterInterface master;
     private volatile boolean masterChecked;
+    // ZooKeeper reference
+    private ZooKeeperWatcher zooKeeper;
+    // ZooKeeper-based master address tracker
+    private MasterAddressTracker masterAddressTracker;
 
-    private final Object rootRegionLock = new Object();
     private final Object metaRegionLock = new Object();
     private final Object userRegionLock = new Object();
 
-    private volatile Configuration conf;
+    private final Configuration conf;
 
     // Known region HServerAddress.toString() -> HRegionInterface
     private final Map<String, HRegionInterface> servers =
       new ConcurrentHashMap<String, HRegionInterface>();
 
-    // Used by master and region servers during safe mode only
-    private volatile HRegionLocation rootRegionLocation;
+    private final RootRegionTracker rootRegionTracker;
 
+    /**
+     * Map of table to table {@link HRegionLocation}s.  The table key is made
+     * by doing a {@link Bytes#mapKey(byte[])} of the table's name.
+     */
     private final Map<Integer, SoftValueSortedMap<byte [], HRegionLocation>>
       cachedRegionLocations =
         new HashMap<Integer, SoftValueSortedMap<byte [], HRegionLocation>>();
@@ -312,7 +229,8 @@ public class HConnectionManager {
      * @param conf Configuration object
      */
     @SuppressWarnings("unchecked")
-    public TableServers(Configuration conf) {
+    public HConnectionImplementation(Configuration conf)
+    throws ZooKeeperConnectionException {
       this.conf = conf;
 
       String serverClassName =
@@ -340,37 +258,35 @@ public class HConnectionManager {
       this.prefetchRegionLimit = conf.getInt("hbase.client.prefetch.limit",
           10);
 
+      // initialize zookeeper and master address manager
+      this.zooKeeper = getZooKeeperWatcher();
+      masterAddressTracker = new MasterAddressTracker(this.zooKeeper, this);
+      zooKeeper.registerListener(masterAddressTracker);
+      masterAddressTracker.start();
+
+      this.rootRegionTracker = new RootRegionTracker(this.zooKeeper, this);
+      this.rootRegionTracker.start();
+
       this.master = null;
       this.masterChecked = false;
     }
 
     private long getPauseTime(int tries) {
       int ntries = tries;
-      if (ntries >= HConstants.RETRY_BACKOFF.length)
+      if (ntries >= HConstants.RETRY_BACKOFF.length) {
         ntries = HConstants.RETRY_BACKOFF.length - 1;
+      }
       return this.pause * HConstants.RETRY_BACKOFF[ntries];
     }
 
-    // Used by master and region servers during safe mode only
-    public void unsetRootRegionLocation() {
-      this.rootRegionLocation = null;
-    }
+    public HMasterInterface getMaster()
+    throws MasterNotRunningException, ZooKeeperConnectionException {
 
-    // Used by master and region servers during safe mode only
-    public void setRootRegionLocation(HRegionLocation rootRegion) {
-      if (rootRegion == null) {
-        throw new IllegalArgumentException(
-            "Cannot set root region location to null.");
-      }
-      this.rootRegionLocation = rootRegion;
-    }
-
-    public HMasterInterface getMaster() throws MasterNotRunningException {
-      ZooKeeperWrapper zk;
-      try {
-        zk = getZooKeeperWrapper();
-      } catch (IOException e) {
-        throw new MasterNotRunningException(e);
+      // Check if we already have a good master connection
+      if (master != null) {
+        if(master.isMasterRunning()) {
+          return master;
+        }
       }
 
       HServerAddress masterLocation = null;
@@ -382,7 +298,11 @@ public class HConnectionManager {
         tries++) {
 
           try {
-            masterLocation = zk.readMasterAddressOrThrow();
+            masterLocation = masterAddressTracker.getMasterAddress();
+            if(masterLocation == null) {
+              LOG.info("ZooKeeper available but no active master location found");
+              throw new MasterNotRunningException();
+            }
 
             HMasterInterface tryMaster = (HMasterInterface)HBaseRPC.getProxy(
                 HMasterInterface.class, HBaseRPCProtocolVersion.versionID,
@@ -424,48 +344,16 @@ public class HConnectionManager {
       return this.master;
     }
 
-    public boolean isMasterRunning() {
+    public boolean isMasterRunning()
+    throws MasterNotRunningException, ZooKeeperConnectionException {
       if (this.master == null) {
-        try {
-          getMaster();
-
-        } catch (MasterNotRunningException e) {
-          return false;
-        }
+        getMaster();
       }
-      return true;
-    }
-
-    public boolean tableExists(final byte [] tableName)
-    throws MasterNotRunningException {
-      getMaster();
-      if (tableName == null) {
-        throw new IllegalArgumentException("Table name cannot be null");
-      }
-      if (isMetaTableName(tableName)) {
+      boolean isRunning = master.isMasterRunning();
+      if(isRunning) {
         return true;
       }
-      boolean exists = false;
-      try {
-        HTableDescriptor[] tables = listTables();
-        for (HTableDescriptor table : tables) {
-          if (Bytes.equals(table.getName(), tableName)) {
-            exists = true;
-          }
-        }
-      } catch (IOException e) {
-        LOG.warn("Testing for table existence threw exception", e);
-      }
-      return exists;
-    }
-
-    /*
-     * @param n
-     * @return Truen if passed tablename <code>n</code> is equal to the name
-     * of a catalog table.
-     */
-    private static boolean isMetaTableName(final byte [] n) {
-      return MetaUtils.isMetaTableName(n);
+      throw new MasterNotRunningException();
     }
 
     public HRegionLocation getRegionLocation(final byte [] name,
@@ -475,7 +363,6 @@ public class HConnectionManager {
     }
 
     public HTableDescriptor[] listTables() throws IOException {
-      getMaster();
       final TreeSet<HTableDescriptor> uniqueTables =
         new TreeSet<HTableDescriptor>();
       MetaScannerVisitor visitor = new MetaScannerVisitor() {
@@ -499,7 +386,6 @@ public class HConnectionManager {
         }
       };
       MetaScanner.metaScan(conf, visitor);
-
       return uniqueTables.toArray(new HTableDescriptor[uniqueTables.size()]);
     }
 
@@ -537,69 +423,22 @@ public class HConnectionManager {
     }
 
     /*
-     * If online == true
-     *   Returns true if all regions are online
-     *   Returns false in any other case
-     * If online == false
-     *   Returns true if all regions are offline
-     *   Returns false in any other case
+     * @param True if table is online
      */
     private boolean testTableOnlineState(byte[] tableName, boolean online)
     throws IOException {
-      if (!tableExists(tableName)) {
-        throw new TableNotFoundException(Bytes.toString(tableName));
-      }
       if (Bytes.equals(tableName, HConstants.ROOT_TABLE_NAME)) {
         // The root region is always enabled
         return true;
       }
-      int rowsScanned = 0;
-      int rowsOffline = 0;
-      byte[] startKey =
-        HRegionInfo.createRegionName(tableName, null, HConstants.ZEROES, false);
-      byte[] endKey;
-      HRegionInfo currentRegion;
-      Scan scan = new Scan(startKey);
-      scan.addColumn(HConstants.CATALOG_FAMILY,
-          HConstants.REGIONINFO_QUALIFIER);
-      int rows = this.conf.getInt("hbase.meta.scanner.caching", 100);
-      scan.setCaching(rows);
-      ScannerCallable s = new ScannerCallable(this,
-          (Bytes.equals(tableName, HConstants.META_TABLE_NAME) ?
-              HConstants.ROOT_TABLE_NAME : HConstants.META_TABLE_NAME), scan);
       try {
-        // Open scanner
-        getRegionServerWithRetries(s);
-        do {
-          currentRegion = s.getHRegionInfo();
-          Result r;
-          Result [] rrs;
-          while ((rrs = getRegionServerWithRetries(s)) != null && rrs.length > 0) {
-            r = rrs[0];
-            byte [] value = r.getValue(HConstants.CATALOG_FAMILY,
-              HConstants.REGIONINFO_QUALIFIER);
-            if (value != null) {
-              HRegionInfo info = Writables.getHRegionInfoOrNull(value);
-              if (info != null) {
-                if (Bytes.equals(info.getTableDesc().getName(), tableName)) {
-                  rowsScanned += 1;
-                  rowsOffline += info.isOffline() ? 1 : 0;
-                }
-              }
-            }
-          }
-          endKey = currentRegion.getEndKey();
-        } while (!(endKey == null ||
-            Bytes.equals(endKey, HConstants.EMPTY_BYTE_ARRAY)));
-      } finally {
-        s.setClose();
-        // Doing below will call 'next' again and this will close the scanner
-        // Without it we leave scanners open.
-        getRegionServerWithRetries(s);
+        List<String> tables = ZKTableDisable.getDisabledTables(this.zooKeeper);
+        String searchStr = Bytes.toString(tableName);
+        boolean disabled = tables.contains(searchStr);
+        return online? !disabled: disabled;
+      } catch (KeeperException e) {
+        throw new IOException("Failed listing disabled tables", e);
       }
-      LOG.debug("Rowscanned=" + rowsScanned + ", rowsOffline=" + rowsOffline);
-      boolean onOffLine = online? rowsOffline == 0: rowsOffline == rowsScanned;
-      return rowsScanned > 0 && onOffLine;
     }
 
     private static class HTableDescriptorFinder
@@ -642,6 +481,20 @@ public class HConnectionManager {
       return result;
     }
 
+    @Override
+    public HRegionLocation locateRegion(final byte [] regionName)
+    throws IOException {
+      // TODO implement.  use old stuff or new stuff?
+      return null;
+    }
+
+    @Override
+    public List<HRegionLocation> locateRegions(final byte [] tableName)
+    throws IOException {
+      // TODO implement.  use old stuff or new stuff?
+      return null;
+    }
+
     public HRegionLocation locateRegion(final byte [] tableName,
         final byte [] row)
     throws IOException{
@@ -663,15 +516,14 @@ public class HConnectionManager {
       }
 
       if (Bytes.equals(tableName, HConstants.ROOT_TABLE_NAME)) {
-        synchronized (rootRegionLock) {
-          // This block guards against two threads trying to find the root
-          // region at the same time. One will go do the find while the
-          // second waits. The second thread will not do find.
-
-          if (!useCache || rootRegionLocation == null) {
-            this.rootRegionLocation = locateRootRegion();
-          }
-          return this.rootRegionLocation;
+        try {
+          HServerAddress hsa =
+            this.rootRegionTracker.waitRootRegionLocation(this.rpcTimeout);
+          if (hsa == null) return null;
+          return new HRegionLocation(HRegionInfo.ROOT_REGIONINFO, hsa);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return null;
         }
       } else if (Bytes.equals(tableName, HConstants.META_TABLE_NAME)) {
         return locateRegionInMeta(HConstants.ROOT_TABLE_NAME, tableName, row,
@@ -946,16 +798,15 @@ public class HConnectionManager {
       return null;
     }
 
-    /*
-     * Delete a cached location, if it satisfies the table name and row
-     * requirements.
+    /**
+     * Delete a cached location
+     * @param tableName tableName
+     * @param row
      */
-    void deleteCachedLocation(final byte [] tableName,
-                                      final byte [] row) {
+    void deleteCachedLocation(final byte [] tableName, final byte [] row) {
       synchronized (this.cachedRegionLocations) {
         SoftValueSortedMap<byte [], HRegionLocation> tableLocations =
             getTableLocations(tableName);
-
         // start to examine the cache. we can only do cache actions
         // if there's something in the cache for this table.
         if (!tableLocations.isEmpty()) {
@@ -964,9 +815,9 @@ public class HConnectionManager {
             tableLocations.remove(rl.getRegionInfo().getStartKey());
             if (LOG.isDebugEnabled()) {
               LOG.debug("Removed " +
-                  rl.getRegionInfo().getRegionNameAsString() +
-                  " for tableName=" + Bytes.toString(tableName) +
-                  " from cache " + "because of " + Bytes.toStringBinary(row));
+                rl.getRegionInfo().getRegionNameAsString() +
+                " for tableName=" + Bytes.toString(tableName) +
+                " from cache " + "because of " + Bytes.toStringBinary(row));
             }
           }
         }
@@ -994,11 +845,18 @@ public class HConnectionManager {
       return result;
     }
 
-    /**
-     * Allows flushing the region cache.
-     */
+    @Override
     public void clearRegionCache() {
-      cachedRegionLocations.clear();
+      synchronized(this.cachedRegionLocations) {
+        this.cachedRegionLocations.clear();
+      }
+    }
+
+    @Override
+    public void clearRegionCache(final byte [] tableName) {
+      synchronized (this.cachedRegionLocations) {
+        this.cachedRegionLocations.remove(Bytes.mapKey(tableName));
+      }
     }
 
     /*
@@ -1033,6 +891,7 @@ public class HConnectionManager {
                 regionServer.getInetSocketAddress(), this.conf,
                 this.maxRPCAttempts, this.rpcTimeout);
           } catch (RemoteException e) {
+            LOG.warn("Remove exception connecting to RS", e);
             throw RemoteExceptionHandler.decodeRemoteException(e);
           }
           this.servers.put(regionServer.toString(), server);
@@ -1047,98 +906,26 @@ public class HConnectionManager {
       return getHRegionConnection(regionServer, false);
     }
 
-    public synchronized ZooKeeperWrapper getZooKeeperWrapper()
-        throws IOException {
-      return HConnectionManager.getClientZooKeeperWatcher(conf)
-          .getZooKeeperWrapper();
-    }
-
-    /*
-     * Repeatedly try to find the root region in ZK
-     * @return HRegionLocation for root region if found
-     * @throws NoServerForRegionException - if the root region can not be
-     * located after retrying
-     * @throws IOException
+    /**
+     * Get the ZooKeeper instance for this TableServers instance.
+     *
+     * If ZK has not been initialized yet, this will connect to ZK.
+     * @returns zookeeper reference
+     * @throws ZooKeeperConnectionException if there's a problem connecting to zk
      */
-    private HRegionLocation locateRootRegion()
-    throws IOException {
-
-      // We lazily instantiate the ZooKeeper object because we don't want to
-      // make the constructor have to throw IOException or handle it itself.
-      ZooKeeperWrapper zk = getZooKeeperWrapper();
-
-      HServerAddress rootRegionAddress = null;
-      for (int tries = 0; tries < numRetries; tries++) {
-        int localTimeouts = 0;
-        // ask the master which server has the root region
-        while (rootRegionAddress == null && localTimeouts < numRetries) {
-          // Don't read root region until we're out of safe mode so we know
-          // that the meta regions have been assigned.
-          rootRegionAddress = zk.readRootRegionLocation();
-          if (rootRegionAddress == null) {
-            try {
-              if (LOG.isDebugEnabled()) {
-                LOG.debug("Sleeping " + getPauseTime(tries) +
-                  "ms, waiting for root region.");
-              }
-              Thread.sleep(getPauseTime(tries));
-            } catch (InterruptedException iex) {
-              // continue
-            }
-            localTimeouts++;
-          }
-        }
-
-        if (rootRegionAddress == null) {
-          throw new NoServerForRegionException(
-              "Timed out trying to locate root region");
-        }
-
+    public synchronized ZooKeeperWatcher getZooKeeperWatcher()
+        throws ZooKeeperConnectionException {
+      if(zooKeeper == null) {
         try {
-          // Get a connection to the region server
-          HRegionInterface server = getHRegionConnection(rootRegionAddress);
-          // if this works, then we're good, and we have an acceptable address,
-          // so we can stop doing retries and return the result.
-          server.getRegionInfo(HRegionInfo.ROOT_REGIONINFO.getRegionName());
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("Found ROOT at " + rootRegionAddress);
-          }
-          break;
-        } catch (Throwable t) {
-          t = translateException(t);
-
-          if (tries == numRetries - 1) {
-            throw new NoServerForRegionException("Timed out trying to locate "+
-                "root region because: " + t.getMessage());
-          }
-
-          // Sleep and retry finding root region.
-          try {
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Root region location changed. Sleeping.");
-            }
-            Thread.sleep(getPauseTime(tries));
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("Wake. Retry finding root region.");
-            }
-          } catch (InterruptedException iex) {
-            // continue
-          }
+          this.zooKeeper = new ZooKeeperWatcher(conf,
+            ZKUtil.getZooKeeperClusterKey(conf), this);
+          LOG.debug("zkw created, sessionid=0x" +
+            Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
+        } catch (IOException e) {
+          throw new ZooKeeperConnectionException(e);
         }
-
-        rootRegionAddress = null;
       }
-
-      // if the address is null by this point, then the retries have failed,
-      // and we're sort of sunk
-      if (rootRegionAddress == null) {
-        throw new NoServerForRegionException(
-          "unable to locate root region server");
-      }
-
-      // return the region location
-      return new HRegionLocation(
-        HRegionInfo.ROOT_REGIONINFO, rootRegionAddress);
+      return zooKeeper;
     }
 
     public <T> T getRegionServerWithRetries(ServerCallable<T> callable)
@@ -1178,40 +965,6 @@ public class HConnectionManager {
           throw new RuntimeException(t2);
         }
       }
-    }
-
-    private HRegionLocation
-      getRegionLocationForRowWithRetries(byte[] tableName, byte[] rowKey,
-        boolean reload)
-    throws IOException {
-      boolean reloadFlag = reload;
-      List<Throwable> exceptions = new ArrayList<Throwable>();
-      HRegionLocation location = null;
-      int tries = 0;
-      for (; tries < numRetries;) {
-        try {
-          location = getRegionLocation(tableName, rowKey, reloadFlag);
-        } catch (Throwable t) {
-          exceptions.add(t);
-        }
-        if (location != null) {
-          break;
-        }
-        reloadFlag = true;
-        tries++;
-        try {
-          Thread.sleep(getPauseTime(tries));
-        } catch (InterruptedException e) {
-          // continue
-        }
-      }
-      if (location == null) {
-        throw new RetriesExhaustedException(" -- nothing found, no 'location' returned," +
-          " tableName=" + Bytes.toString(tableName) +
-          ", reload=" + reload + " --",
-          HConstants.EMPTY_BYTE_ARRAY, rowKey, tries, exceptions);
-      }
-      return location;
     }
 
     /**
@@ -1260,14 +1013,20 @@ public class HConnectionManager {
           HBaseRPC.stopProxy(i);
         }
       }
+      if (this.zooKeeper != null) {
+        LOG.debug("Closed zookeeper sessionid=0x" +
+          Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
+        this.zooKeeper.close();
+        this.zooKeeper = null;
+      }
     }
 
-    private Callable<MultiResponse> createCallable(
+    private <R> Callable<MultiResponse<R>> createCallable(
         final HServerAddress address,
-        final MultiAction multi,
+        final MultiAction<R> multi,
         final byte [] tableName) {
   	  final HConnection connection = this;
-  	  return new Callable<MultiResponse>() {
+  	  return new Callable<MultiResponse<R>>() {
   	    public MultiResponse call() throws IOException {
   	      return getRegionServerWithoutRetries(
   	          new ServerCallable<MultiResponse>(connection, tableName, null) {
@@ -1294,9 +1053,86 @@ public class HConnectionManager {
         throw new IllegalArgumentException("argument results must be the same size as argument list");
       }
 
-      if (list.size() == 0) {
-        return;
+      Object[] tmpResults = processBatchCallback(list, tableName, pool, null);
+      System.arraycopy(tmpResults, 0, results, 0, results.length);
+    }
+
+    /**
+     * Executes the given {@link HTable.BatchCall} callable for each row in the
+     * given list and invokes {@link HTable.BatchCallback#update(byte[], byte[], Object)}
+     * for each result returned.
+     *
+     * @param protocol the protocol interface being called
+     * @param list a list of rows for which the callable should be invoked
+     * @param tableName table name for the coprocessor invoked
+     * @param pool ExecutorService used to submit the calls per row
+     * @param callable instance on which to invoke {@link HTable.BatchCall#call(Object)} for each row
+     * @param callback instance on which to invoke {@link HTable.BatchCallback#update(byte[], byte[], Object)} for each result
+     * @param <T> the protocol interface type
+     * @param <R> the callable's return type
+     * @throws IOException
+     */
+    public <T extends CoprocessorProtocol,R> void processExecs(
+        final Class<T> protocol,
+        List<? extends Row> list,
+        final byte[] tableName,
+        ExecutorService pool,
+        final HTable.BatchCall<T,R> callable,
+        final HTable.BatchCallback<R> callback)
+      throws IOException, Throwable {
+
+      Map<Row,Future<R>> futures = new HashMap<Row,Future<R>>();
+      for (final Row r : list) {
+        final ExecRPCInvoker invoker =
+            new ExecRPCInvoker(conf, this, protocol, tableName, r);
+        Future<R> future = pool.submit(
+            new Callable<R>() {
+              public R call() throws Exception {
+                T instance = (T)Proxy.newProxyInstance(conf.getClassLoader(),
+                    new Class[]{protocol},
+                    invoker);
+                R result = callable.call(instance);
+                byte[] region = invoker.getRegionName();
+                if (callback != null) {
+                  callback.update(region, r.getRow(), result);
+                }
+                return result;
+              }
+            });
+        futures.put(r, future);
       }
+      for (Map.Entry<Row,Future<R>> e : futures.entrySet()) {
+        try {
+          e.getValue().get();
+        } catch (ExecutionException ee) {
+          LOG.warn("Error executing for row "+Bytes.toStringBinary(e.getKey().getRow()), ee);
+          throw ee.getCause();
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new IOException("Interrupted executing for row "+Bytes.toStringBinary(e.getKey().getRow()), ie);
+        }
+      }
+    }
+
+    /**
+     * Parameterized batch processing, allowing varying return types for different
+     * {@link Row} implementations.
+     */
+    public <R> R[] processBatchCallback(
+        List<? extends Row> list,
+        byte[] tableName,
+        ExecutorService pool,
+        HTable.BatchCallback<R> callback) throws IOException {
+
+      if (list.size() == 0) {
+        return null;
+      }
+      ArrayList<R> results = new ArrayList<R>(list.size());
+      // prefill to set size
+      for (int i=0; i<list.size(); i++) {
+        results.add(null);
+      }
+      LOG.debug("expecting "+results.size()+" results");
 
       List<Row> workingList = new ArrayList<Row>(list);
       final boolean singletonList = (list.size() == 1);
@@ -1317,10 +1153,8 @@ public class HConnectionManager {
             break;
           }
         }
-
         // step 1: break up into regionserver-sized chunks and build the data structs
-
-        Map<HServerAddress, MultiAction> actionsByServer = new HashMap<HServerAddress, MultiAction>();
+        Map<HServerAddress, MultiAction<R>> actionsByServer = new HashMap<HServerAddress, MultiAction<R>>();
         for (int i=0; i<workingList.size(); i++) {
           Row row = workingList.get(i);
           if (row != null) {
@@ -1328,55 +1162,59 @@ public class HConnectionManager {
             HServerAddress address = loc.getServerAddress();
             byte[] regionName = loc.getRegionInfo().getRegionName();
 
-            MultiAction actions = actionsByServer.get(address);
+            MultiAction<R> actions = actionsByServer.get(address);
             if (actions == null) {
-              actions = new MultiAction();
+              actions = new MultiAction<R>();
               actionsByServer.put(address, actions);
             }
 
-            Action action = new Action(regionName, row, i);
+            Action<R> action = new Action<R>(regionName, row, i);
             actions.add(regionName, action);
           }
         }
 
         // step 2: make the requests
 
-        Map<HServerAddress,Future<MultiResponse>> futures =
-            new HashMap<HServerAddress, Future<MultiResponse>>(actionsByServer.size());
+        Map<HServerAddress,Future<MultiResponse<R>>> futures =
+            new HashMap<HServerAddress, Future<MultiResponse<R>>>(actionsByServer.size());
 
-        for (Entry<HServerAddress, MultiAction> e : actionsByServer.entrySet()) {
+        for (Entry<HServerAddress, MultiAction<R>> e : actionsByServer.entrySet()) {
           futures.put(e.getKey(), pool.submit(createCallable(e.getKey(), e.getValue(), tableName)));
         }
 
         // step 3: collect the failures and successes and prepare for retry
 
-        for (Entry<HServerAddress, Future<MultiResponse>> responsePerServer : futures.entrySet()) {
+        for (Entry<HServerAddress, Future<MultiResponse<R>>> responsePerServer : futures.entrySet()) {
           HServerAddress address = responsePerServer.getKey();
 
           try {
             // Gather the results for one server
-            Future<MultiResponse> future = responsePerServer.getValue();
+            Future<MultiResponse<R>> future = responsePerServer.getValue();
 
             // Not really sure what a reasonable timeout value is. Here's a first try.
 
-            MultiResponse resp = future.get();
+            MultiResponse<R> resp = future.get();
 
             if (resp == null) {
               // Entire server failed
               LOG.debug("Failed all for server: " + address + ", removing from cache");
             } else {
               // For each region
-              for (Entry<byte[], List<Pair<Integer,Result>>> e : resp.getResults().entrySet()) {
+              for (Entry<byte[], List<Pair<Integer,R>>> e : resp.getResults().entrySet()) {
                 byte[] regionName = e.getKey();
-                List<Pair<Integer, Result>> regionResults = e.getValue();
-                for (int i = 0; i < regionResults.size(); i++) {
-                  Pair<Integer, Result> regionResult = regionResults.get(i);
-                  if (regionResult.getSecond() == null) {
+                List<Pair<Integer, R>> regionResults = e.getValue();
+                for (Pair<Integer, R> regionResult : regionResults) {
+                  if (regionResult == null) {
                     // failed
                     LOG.debug("Failures for region: " + Bytes.toStringBinary(regionName) + ", removing from cache");
                   } else {
                     // success
-                    results[regionResult.getFirst()] = regionResult.getSecond();
+                    results.set(regionResult.getFirst(), regionResult.getSecond());
+                    if (callback != null) {
+                      callback.update(e.getKey(),
+                          list.get(regionResult.getFirst()).getRow(),
+                          regionResult.getSecond());
+                    }
                   }
                 }
               }
@@ -1398,38 +1236,39 @@ public class HConnectionManager {
               singleRowCause = e.getCause();
             }
           }
+          // Find failures (i.e. null Result), and add them to the workingList (in
+          // order), so they can be retried.
+          retry = false;
+          workingList.clear();
+          for (int i = 0; i < results.size(); i++) {
+            if (results.get(i) == null) {
+              retry = true;
+              Row row = list.get(i);
+              workingList.add(row);
+              deleteCachedLocation(tableName, row.getRow());
+            } else {
+              // add null to workingList, so the order remains consistent with the original list argument.
+              workingList.add(null);
+            }
+          }
         }
 
-        // Find failures (i.e. null Result), and add them to the workingList (in
-        // order), so they can be retried.
-        retry = false;
-        workingList.clear();
-        for (int i = 0; i < results.length; i++) {
-          if (results[i] == null) {
-            retry = true;
-            Row row = list.get(i);
-            workingList.add(row);
-            deleteCachedLocation(tableName, row.getRow());
+        if (Thread.currentThread().isInterrupted()) {
+          throw new IOException("Aborting attempt because of a thread interruption");
+        }
+
+        if (retry) {
+          // ran out of retries and didn't successfully finish everything!
+          if (singleRowCause != null) {
+            throw new IOException(singleRowCause);
           } else {
-            // add null to workingList, so the order remains consistent with the original list argument.
-            workingList.add(null);
+            throw new RetriesExhaustedException("Still had " + workingList.size()
+                + " actions left after retrying " + numRetries + " times.");
           }
         }
       }
 
-      if (Thread.currentThread().isInterrupted()) {
-        throw new IOException("Aborting attempt because of a thread interruption");
-      }
-
-      if (retry) {
-        // ran out of retries and didn't successfully finish everything!
-        if (singleRowCause != null) {
-          throw new IOException(singleRowCause);
-        } else {
-          throw new RetriesExhaustedException("Still had " + workingList.size()
-              + " actions left after retrying " + numRetries + " times.");
-        }
-      }
+      return (R[])results.toArray();
     }
 
     /**
@@ -1514,6 +1353,12 @@ public class HConnectionManager {
         cacheLocation(tableName,
             new HRegionLocation(e.getKey(), e.getValue()));
       }
+    }
+
+    @Override
+    public void abort(final String msg, Throwable t) {
+      if (t != null) LOG.fatal(msg, t);
+      else LOG.fatal(msg);
     }
   }
 }

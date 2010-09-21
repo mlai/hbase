@@ -74,7 +74,14 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   public static final String COMPRESSION = "COMPRESSION";
   public static final String COMPRESSION_COMPACT = "COMPRESSION_COMPACT";
   public static final String BLOCKCACHE = "BLOCKCACHE";
+  
+  /**
+   * Size of storefile/hfile 'blocks'.  Default is {@link #DEFAULT_BLOCKSIZE}.
+   * Use smaller block sizes for faster random-access at expense of larger
+   * indices (more memory consumption).
+   */
   public static final String BLOCKSIZE = "BLOCKSIZE";
+
   public static final String LENGTH = "LENGTH";
   public static final String TTL = "TTL";
   public static final String BLOOMFILTER = "BLOOMFILTER";
@@ -109,8 +116,7 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   public static final boolean DEFAULT_BLOCKCACHE = true;
 
   /**
-   * Default size of blocks in files store to the filesytem.  Use smaller for
-   * faster random-access at expense of larger indices (more memory consumption).
+   * Default size of blocks in files stored to the filesytem (hfiles).
    */
   public static final int DEFAULT_BLOCKSIZE = HFile.DEFAULT_BLOCKSIZE;
 
@@ -186,6 +192,7 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
         desc.values.entrySet()) {
       this.values.put(e.getKey(), e.getValue());
     }
+    setMaxVersions(desc.getMaxVersions());
   }
 
   /**
@@ -223,7 +230,9 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
    * @param inMemory If true, column data should be kept in an HRegionServer's
    * cache
    * @param blockCacheEnabled If true, MapFile blocks should be cached
-   * @param blocksize
+   * @param blocksize Block size to use when writing out storefiles.  Use
+   * smaller blocksizes for faster random-access at expense of larger indices
+   * (more memory consumption).  Default is usually 64k.
    * @param timeToLive Time-to-live of cell contents, in seconds
    * (use HConstants.FOREVER for unlimited TTL)
    * @param bloomFilter Bloom filter type for this column
@@ -371,12 +380,7 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   }
 
   /** @return maximum number of versions */
-  public synchronized int getMaxVersions() {
-    if (this.cachedMaxVersions == -1) {
-      String value = getValue(HConstants.VERSIONS);
-      this.cachedMaxVersions = (value != null)?
-        Integer.valueOf(value).intValue(): DEFAULT_VERSIONS;
-    }
+  public int getMaxVersions() {
     return this.cachedMaxVersions;
   }
 
@@ -385,10 +389,11 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
    */
   public void setMaxVersions(int maxVersions) {
     setValue(HConstants.VERSIONS, Integer.toString(maxVersions));
+    cachedMaxVersions = maxVersions;
   }
 
   /**
-   * @return Blocksize.
+   * @return The storefile/hfile blocksize for this column family.
    */
   public synchronized int getBlocksize() {
     if (this.blocksize == null) {
@@ -400,7 +405,8 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
   }
 
   /**
-   * @param s
+   * @param s Blocksize to use when writing out storefiles/hfiles on this
+   * column family.
    */
   public void setBlocksize(int s) {
     setValue(BLOCKSIZE, Integer.toString(s));
@@ -643,12 +649,12 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
         ImmutableBytesWritable value = new ImmutableBytesWritable();
         key.readFields(in);
         value.readFields(in);
-        
+
         // in version 8, the BloomFilter setting changed from bool to enum
         if (version < 8 && Bytes.toString(key.get()).equals(BLOOMFILTER)) {
           value.set(Bytes.toBytes(
               Boolean.getBoolean(Bytes.toString(value.get()))
-                ? BloomType.ROW.toString() 
+                ? BloomType.ROW.toString()
                 : BloomType.NONE.toString()));
         }
 
@@ -658,6 +664,9 @@ public class HColumnDescriptor implements WritableComparable<HColumnDescriptor> 
         // Convert old values.
         setValue(COMPRESSION, Compression.Algorithm.NONE.getName());
       }
+      String value = getValue(HConstants.VERSIONS);
+      this.cachedMaxVersions = (value != null)?
+          Integer.valueOf(value).intValue(): DEFAULT_VERSIONS;
     }
   }
 

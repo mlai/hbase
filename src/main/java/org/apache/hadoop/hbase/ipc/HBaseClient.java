@@ -23,46 +23,35 @@ package org.apache.hadoop.hbase.ipc;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hbase.security.HBaseSaslRpcClient;
-import org.apache.hadoop.hbase.security.HBaseSaslRpcServer.AuthMethod;
+import org.apache.hadoop.hbase.security.HBaseSaslRpcServer;
 import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.ipc.RemoteException;
+import org.apache.hadoop.ipc.VersionedProtocol;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
 
 import javax.net.SocketFactory;
-import java.io.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
-import java.security.PrivilegedExceptionAction;
 import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.Map.Entry;
-import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-
-import javax.net.SocketFactory;
-
-import org.apache.commons.logging.*;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.security.KerberosInfo;
-import org.apache.hadoop.security.SecurityUtil;
-import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.security.token.TokenIdentifier;
-import org.apache.hadoop.security.token.TokenSelector;
-import org.apache.hadoop.security.token.TokenInfo;
 
 /** A client for an IPC service.  IPC calls take a single {@link Writable} as a
  * parameter, and return a {@link Writable} as their value.  A service runs on
@@ -85,7 +74,7 @@ public class HBaseClient {
   protected final AtomicBoolean running = new AtomicBoolean(true); // if client runs
   final protected Configuration conf;
   final protected int maxIdleTime; // connections will be culled if it was idle for
-                                   // maxIdleTime microsecs
+                           // maxIdleTime microsecs
   final protected int maxRetries; //the max. no. of retries for socket connections
   final protected long failureSleep; // Time to sleep before retry on failure.
   protected final boolean tcpNoDelay; // if T then disable Nagle's Algorithm
@@ -106,7 +95,7 @@ public class HBaseClient {
    * @param pingInterval the ping interval
    */
   @SuppressWarnings({"UnusedDeclaration"})
-  final public static void setPingInterval(Configuration conf, int pingInterval) {
+  public static void setPingInterval(Configuration conf, int pingInterval) {
     conf.setInt(PING_INTERVAL_NAME, pingInterval);
   }
 
@@ -117,7 +106,7 @@ public class HBaseClient {
    * @param conf Configuration
    * @return the ping interval
    */
-  final static int getPingInterval(Configuration conf) {
+  static int getPingInterval(Configuration conf) {
     return conf.getInt(PING_INTERVAL_NAME, DEFAULT_PING_INTERVAL);
   }
 
@@ -147,7 +136,7 @@ public class HBaseClient {
   }
 
   /** A call waiting for a value. */
-  private class Call {
+  protected class Call {
     final int id;                                       // call id
     final Writable param;                               // parameter
     Writable value;                               // value, null if error
@@ -193,15 +182,8 @@ public class HBaseClient {
    * socket connected to a remote address.  Calls are multiplexed through this
    * socket: responses may be delivered out of order. */
   private class Connection extends Thread {
-    private InetSocketAddress server;             // server ip:port
-    private String serverPrincipal;  // server's krb5 principal name
     private ConnectionHeader header;              // connection header
-    private final ConnectionId remoteId;                // connection id
-    private AuthMethod authMethod; // authentication method
-    private boolean useSasl;
-    private Token<? extends TokenIdentifier> token;
-    private HBaseSaslRpcClient saslRpcClient;
-
+    private ConnectionId remoteId;
     private Socket socket = null;                 // connected socket
     private DataInputStream in;
     private DataOutputStream out;
@@ -213,63 +195,17 @@ public class HBaseClient {
     private IOException closeException; // close reason
 
     public Connection(ConnectionId remoteId) throws IOException {
-      this.remoteId = remoteId;
-      this.server = remoteId.getAddress();
-      if (server.isUnresolved()) {
+      if (remoteId.getAddress().isUnresolved()) {
         throw new UnknownHostException("unknown host: " +
                                        remoteId.getAddress().getHostName());
       }
-
+      this.remoteId = remoteId;
       UserGroupInformation ticket = remoteId.getTicket();
-      Class<?> protocol = remoteId.getProtocol();
-      this.useSasl = UserGroupInformation.isSecurityEnabled();
-      if (useSasl && protocol != null) {
-        TokenInfo tokenInfo = protocol.getAnnotation(TokenInfo.class);
-        if (tokenInfo != null) {
-          TokenSelector<? extends TokenIdentifier> tokenSelector = null;
-          try {
-            tokenSelector = tokenInfo.value().newInstance();
-          } catch (InstantiationException e) {
-            throw new IOException(e.toString());
-          } catch (IllegalAccessException e) {
-            throw new IOException(e.toString());
-          }
-          InetSocketAddress addr = remoteId.getAddress();
-          token = tokenSelector.selectToken(new Text(addr.getAddress()
-              .getHostAddress() + ":" + addr.getPort()),
-              ticket.getTokens());
-        }
-        KerberosInfo krbInfo = protocol.getAnnotation(KerberosInfo.class);
-        if (krbInfo != null) {
-          String serverKey = krbInfo.serverPrincipal();
-          if (serverKey == null) {
-            throw new IOException(
-                "Can't obtain server Kerberos config key from KerberosInfo");
-          }
-          serverPrincipal = SecurityUtil.getServerPrincipal(
-              conf.get(serverKey),
-              server.getAddress().getCanonicalHostName().toLowerCase());
-          if (LOG.isDebugEnabled()) {
-            LOG.debug("RPC Server Kerberos principal name for protocol="
-                + protocol.getCanonicalName() + " is " + serverPrincipal);
-          }
-        }
-      }
-
-      if (!useSasl) {
-        authMethod = AuthMethod.SIMPLE;
-      } else if (token != null) {
-        authMethod = AuthMethod.DIGEST;
-      } else {
-        authMethod = AuthMethod.KERBEROS;
-      }
+      Class<? extends VersionedProtocol> protocol = remoteId.getProtocol();
 
       header = new ConnectionHeader(
-          protocol == null ? null : protocol.getName(), ticket, authMethod);
-
-      if (LOG.isDebugEnabled())
-        LOG.debug("Use " + authMethod + " authentication for protocol "
-            + protocol.getSimpleName());
+          protocol == null ? null : protocol.getName(), ticket,
+          HBaseSaslRpcServer.AuthMethod.SIMPLE);
 
       this.setName("IPC Client (" + socketFactory.hashCode() +") connection to " +
         remoteId.getAddress().toString() +
@@ -352,209 +288,54 @@ public class HBaseClient {
       }
     }
 
-    private synchronized void disposeSasl() {
-      if (saslRpcClient != null) {
-        try {
-          saslRpcClient.dispose();
-        } catch (IOException ignored) {
-        }
-      }
-    }
-
-    private synchronized boolean shouldAuthenticateOverKrb() throws IOException {
-      UserGroupInformation loginUser = UserGroupInformation.getLoginUser();
-      UserGroupInformation currentUser = 
-        UserGroupInformation.getCurrentUser();
-      UserGroupInformation realUser = currentUser.getRealUser();
-      if (authMethod == AuthMethod.KERBEROS && 
-          loginUser != null &&
-          //Make sure user logged in using Kerberos either keytab or TGT
-          loginUser.hasKerberosCredentials() && 
-          // relogin only in case it is the login user (e.g. JT)
-          // or superuser (like oozie). 
-          (loginUser.equals(currentUser) || loginUser.equals(realUser))
-          ) {
-          return true;
-      }
-      return false;
-    }
-
-    private synchronized boolean setupSaslConnection(final InputStream in2, 
-        final OutputStream out2)
-        throws IOException {
-      saslRpcClient = new HBaseSaslRpcClient(authMethod, token, serverPrincipal);
-      return saslRpcClient.saslConnect(in2, out2);
-    }
-
-    private synchronized void setupConnection() throws IOException {
-      short ioFailures = 0;
-      short timeoutFailures = 0;
-      while (true) {
-        try {
-          this.socket = socketFactory.createSocket();
-          this.socket.setTcpNoDelay(tcpNoDelay);
-          this.socket.setKeepAlive(tcpKeepAlive);
-          // connection time out is 20s
-          NetUtils.connect(this.socket, remoteId.getAddress(), 20000);
-          this.socket.setSoTimeout(pingInterval);
-          return;
-        } catch (SocketTimeoutException toe) {
-          /* The max number of retries is 45,
-           * which amounts to 20s*45 = 15 minutes retries.
-           */
-          handleConnectionFailure(timeoutFailures++, maxRetries, toe);
-        } catch (IOException ie) {
-          handleConnectionFailure(ioFailures++, maxRetries, ie);
-        }
-      }
-    }
-
-    /**
-     * If multiple clients with the same principal try to connect 
-     * to the same server at the same time, the server assumes a 
-     * replay attack is in progress. This is a feature of kerberos.
-     * In order to work around this, what is done is that the client
-     * backs off randomly and tries to initiate the connection
-     * again.
-     * The other problem is to do with ticket expiry. To handle that,
-     * a relogin is attempted.
-     */
-    private synchronized void handleSaslConnectionFailure(
-        final int currRetries,
-        final int maxRetries, final Exception ex, final Random rand,
-        final UserGroupInformation ugi) 
-    throws IOException, InterruptedException{
-      ugi.doAs(new PrivilegedExceptionAction<Object>() {
-        public Object run() throws IOException, InterruptedException {
-          final short MAX_BACKOFF = 5000;
-          closeConnection();
-          if (shouldAuthenticateOverKrb()) {
-            if (currRetries < maxRetries) {
-              LOG.debug("Exception encountered while connecting to " +
-                  "the server : " + ex);
-              //try re-login
-              if (UserGroupInformation.isLoginKeytabBased()) {
-                UserGroupInformation.getLoginUser().reloginFromKeytab();
-              } else {
-                UserGroupInformation.getLoginUser().reloginFromTicketCache();
-              }
-              disposeSasl();
-              //have granularity of milliseconds
-              //we are sleeping with the Connection lock held but since this
-              //connection instance is being used for connecting to the server
-              //in question, it is okay
-              Thread.sleep((rand.nextInt(MAX_BACKOFF) + 1));
-              return null;
-            } else {
-              String msg = "Couldn't setup connection for " + 
-              UserGroupInformation.getLoginUser().getUserName() +
-              " to " + serverPrincipal;
-              LOG.warn(msg);
-              throw (IOException) new IOException(msg).initCause(ex);
-            }
-          } else {
-            LOG.warn("Exception encountered while connecting to " +
-                "the server : " + ex);
-          }
-          if (ex instanceof RemoteException)
-            throw (RemoteException)ex;
-          throw new IOException(ex);
-        }
-      });
-    }
     /** Connect to the server and set up the I/O streams. It then sends
      * a header to the server and starts
      * the connection thread that waits for responses.
      * @throws java.io.IOException e
      */
-	  protected synchronized void setupIOstreams() throws IOException, InterruptedException {
+    protected synchronized void setupIOstreams() throws IOException {
       if (socket != null || shouldCloseConnection.get()) {
         return;
       }
 
+      short ioFailures = 0;
+      short timeoutFailures = 0;
       try {
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Connecting to "+server);
+          LOG.debug("Connecting to "+remoteId.getAddress());
         }
-        short numRetries = 0;
-        final short MAX_RETRIES = 5;
-        Random rand = null;
         while (true) {
-          setupConnection();
-          InputStream inStream = NetUtils.getInputStream(socket);
-          OutputStream outStream = NetUtils.getOutputStream(socket);
-          writeRpcHeader(outStream);
-          if (useSasl) {
-            final InputStream in2 = inStream;
-            final OutputStream out2 = outStream;
-            UserGroupInformation ticket = remoteId.getTicket();
-            if (authMethod == AuthMethod.KERBEROS) {
-              if (ticket.getRealUser() != null) {
-                ticket = ticket.getRealUser();
-              }
-            }
-            boolean continueSasl = false;
-            try { 
-              continueSasl = 
-                ticket.doAs(new PrivilegedExceptionAction<Boolean>() {
-                  @Override
-                  public Boolean run() throws IOException {
-                    return setupSaslConnection(in2, out2);
-                  }
-                }); 
-            } catch (Exception ex) {
-              if (rand == null) {
-                rand = new Random();
-              }
-              handleSaslConnectionFailure(numRetries++, MAX_RETRIES, ex, rand, 
-                   ticket);
-              continue;
-            }
-            if (continueSasl) {
-              // Sasl connect is successful. Let's set up Sasl i/o streams.
-              inStream = saslRpcClient.getInputStream(inStream);
-              outStream = saslRpcClient.getOutputStream(outStream);
-            } else {
-              // fall back to simple auth because server told us so.
-              authMethod = AuthMethod.SIMPLE;
-              header = new ConnectionHeader(header.getProtocol(),
-                  header.getUgi(), authMethod);
-              useSasl = false;
-            }
+          try {
+            this.socket = socketFactory.createSocket();
+            this.socket.setTcpNoDelay(tcpNoDelay);
+            this.socket.setKeepAlive(tcpKeepAlive);
+            // connection time out is 20s
+            NetUtils.connect(this.socket, remoteId.getAddress(), 20000);
+            this.socket.setSoTimeout(pingInterval);
+            break;
+          } catch (SocketTimeoutException toe) {
+            handleConnectionFailure(timeoutFailures++, maxRetries, toe);
+          } catch (IOException ie) {
+            handleConnectionFailure(ioFailures++, maxRetries, ie);
           }
-          this.in = new DataInputStream(new BufferedInputStream
-              (new PingInputStream(inStream)));
-          this.out = new DataOutputStream
-          (new BufferedOutputStream(outStream));
-          writeHeader();
-
-          // update last activity time
-          touch();
-
-          // start the receiver thread after the socket connection has been set up
-          start();
-          return;
         }
+        this.in = new DataInputStream(new BufferedInputStream
+            (new PingInputStream(NetUtils.getInputStream(socket))));
+        this.out = new DataOutputStream
+            (new BufferedOutputStream(NetUtils.getOutputStream(socket)));
+        writeHeader();
+
+        // update last activity time
+        touch();
+
+        // start the receiver thread after the socket connection has been set up
+        start();
       } catch (IOException e) {
         markClosed(e);
         close();
 
         throw e;
       }
-    }
-
-    private void closeConnection() {
-      // close the current connection
-      if (socket != null) {
-        try {
-          socket.close();
-        } catch (IOException e) {
-          LOG.warn("Not able to close a socket", e);
-        }
-	  }
-      // set socket to null so that the next call to setupIOstreams
-      // can start the process of connect all over again.
-      socket = null;
     }
 
     /* Handle connection failures
@@ -573,8 +354,17 @@ public class HBaseClient {
      */
     private void handleConnectionFailure(
         int curRetries, int maxRetries, IOException ioe) throws IOException {
-
-      closeConnection();
+      // close the current connection
+      if (socket != null) { // could be null if the socket creation failed
+        try {
+          socket.close();
+        } catch (IOException e) {
+          LOG.warn("Not able to close a socket", e);
+        }
+      }
+      // set socket to null so that the next call to setupIOstreams
+      // can start the process of connect all over again.
+      socket = null;
 
       // throw the exception if the maximum number of retries is reached
       if (curRetries >= maxRetries) {
@@ -586,30 +376,21 @@ public class HBaseClient {
         Thread.sleep(failureSleep);
       } catch (InterruptedException ignored) {}
 
-      LOG.info("Retrying connect to server: " + server +
+      LOG.info("Retrying connect to server: " + remoteId.getAddress() +
         " after sleeping " + failureSleep + "ms. Already tried " + curRetries +
         " time(s).");
     }
 
-    /* Write the RPC header */
-    private void writeRpcHeader(OutputStream outStream) throws IOException {
-      DataOutputStream out = new DataOutputStream(new BufferedOutputStream(outStream));
-      // Write out the header, version and authentication method
-      out.write(HBaseServer.HEADER.array());
-      out.write(HBaseServer.CURRENT_VERSION);
-      authMethod.write(out);
-      out.flush();
-    }
-
-    /* Write the protocol header for each connection
+    /* Write the header for each connection
      * Out is not synchronized because only the first thread does this.
      */
     private void writeHeader() throws IOException {
-      // Write out the ConnectionHeader
+      out.write(HBaseServer.HEADER.array());
+      out.write(HBaseServer.CURRENT_VERSION);
+      //When there are more fields we can have ConnectionHeader Writable.
       DataOutputBuffer buf = new DataOutputBuffer();
       header.write(buf);
 
-      // Write out the payload length
       int bufLen = buf.getLength();
       out.writeInt(bufLen);
       out.write(buf.getData(), 0, bufLen);
@@ -648,7 +429,7 @@ public class HBaseClient {
     }
 
     public InetSocketAddress getRemoteAddress() {
-      return server;
+      return remoteId.getAddress();
     }
 
     /* Send a ping to the server if the time elapsed
@@ -688,7 +469,7 @@ public class HBaseClient {
             + connections.size());
     }
 
-    /** Initiates a call by sending the parameter to the remote server.
+    /* Initiates a call by sending the parameter to the remote server.
      * Note: this is not called from the Connection thread, but by other
      * threads.
      */
@@ -741,21 +522,17 @@ public class HBaseClient {
 
         Call call = calls.get(id);
 
-        int state = in.readInt();     // read call status
-        if (state == Status.SUCCESS.state) {
+        boolean isError = in.readBoolean();     // read if error
+        if (isError) {
+          //noinspection ThrowableInstanceNeverThrown
+          call.setException(new RemoteException( WritableUtils.readString(in),
+              WritableUtils.readString(in)));
+          calls.remove(id);
+        } else {
           Writable value = ReflectionUtils.newInstance(valueClass, conf);
           value.readFields(in);                 // read value
           call.setValue(value);
           calls.remove(id);
-        } else if (state == Status.ERROR.state) {
-          call.setException(new RemoteException(WritableUtils.readString(in),
-                                                WritableUtils.readString(in)));
-          calls.remove(id);
-        } else if (state == Status.FATAL.state) {
-          // Close the connection
-          calls.remove(id);
-          markClosed(new RemoteException(WritableUtils.readString(in), 
-                                         WritableUtils.readString(in)));
         }
       } catch (IOException e) {
         markClosed(e);
@@ -787,7 +564,6 @@ public class HBaseClient {
       // close the streams and therefore the socket
       IOUtils.closeStream(out);
       IOUtils.closeStream(in);
-      disposeSasl();
 
       // clean up all calls
       if (closeException == null) {
@@ -802,7 +578,7 @@ public class HBaseClient {
       } else {
         // log the info
         if (LOG.isDebugEnabled()) {
-          LOG.debug("closing ipc connection to " + server + ": " +
+          LOG.debug("closing ipc connection to " + remoteId.address + ": " +
               closeException.getMessage(),closeException);
         }
 
@@ -825,7 +601,7 @@ public class HBaseClient {
   }
 
   /** Call implementation used for parallel calls. */
-  private class ParallelCall extends Call {
+  protected class ParallelCall extends Call {
     private final ParallelResults results;
     protected final int index;
 
@@ -843,7 +619,7 @@ public class HBaseClient {
   }
 
   /** Result collector for parallel calls. */
-  private static class ParallelResults {
+  protected static class ParallelResults {
     protected final Writable[] values;
     protected int size;
     protected int count;
@@ -853,7 +629,7 @@ public class HBaseClient {
       this.size = size;
     }
 
-	/**
+    /*
      * Collect a result.
      */
     synchronized void callComplete(ParallelCall call) {
@@ -936,36 +712,31 @@ public class HBaseClient {
   /** Make a call, passing <code>param</code>, to the IPC server running at
    * <code>address</code>, returning the value.  Throws exceptions if there are
    * network problems or if the remote code threw an exception.
-   * @deprecated Use {@link #call(Writable, InetSocketAddress, Class, UserGroupInformation)} instead 
+   * @param param writable parameter
+   * @param address network address
+   * @return Writable
+   * @throws IOException e
    */
-  @Deprecated
   public Writable call(Writable param, InetSocketAddress address)
-  throws InterruptedException, IOException {
+  throws IOException, InterruptedException {
       return call(param, address, null);
   }
 
-  /** Make a call, passing <code>param</code>, to the IPC server running at
-   * <code>address</code> with the <code>ticket</code> credentials, returning 
-   * the value.  
-   * Throws exceptions if there are network problems or if the remote code 
-   * threw an exception.
-   * @deprecated Use {@link #call(Writable, InetSocketAddress, Class, UserGroupInformation)} instead 
-   */
-  @Deprecated
-  public Writable call(Writable param, InetSocketAddress addr, 
-      UserGroupInformation ticket)  
-      throws InterruptedException, IOException {
+  public Writable call(Writable param, InetSocketAddress addr,
+                       UserGroupInformation ticket)
+                       throws IOException, InterruptedException {
     return call(param, addr, null, ticket);
   }
 
   /** Make a call, passing <code>param</code>, to the IPC server running at
-   * <code>address</code> which is servicing the <code>protocol</code> protocol, 
+   * <code>address</code> which is servicing the <code>protocol</code> protocol,
    * with the <code>ticket</code> credentials, returning the value.
    * Throws exceptions if there are network problems or if the remote code
    * threw an exception. */
   public Writable call(Writable param, InetSocketAddress addr,
-                       Class<?> protocol, UserGroupInformation ticket)  
-                       throws InterruptedException, IOException {
+                       Class<? extends VersionedProtocol> protocol,
+                       UserGroupInformation ticket)
+      throws InterruptedException, IOException {
     Call call = new Call(param);
     Connection connection = getConnection(addr, protocol, ticket, call);
     connection.sendParam(call);                 // send the parameter
@@ -1034,7 +805,11 @@ public class HBaseClient {
    * corresponding address.  When all values are available, or have timed out
    * or errored, the collected results are returned in an array.  The array
    * contains nulls for calls that timed out or errored.
-   * @deprecated Use {@link #call(Writable[], InetSocketAddress[], Class, UserGroupInformation)} instead 
+   * @param params writable parameters
+   * @param addresses socket addresses
+   * @return  Writable[]
+   * @throws IOException e
+   * @deprecated Use {@link #call(Writable[], InetSocketAddress[], Class, UserGroupInformation)} instead
    */
   @Deprecated
   public Writable[] call(Writable[] params, InetSocketAddress[] addresses)
@@ -1047,8 +822,9 @@ public class HBaseClient {
    * or errored, the collected results are returned in an array.  The array
    * contains nulls for calls that timed out or errored.  */
   public Writable[] call(Writable[] params, InetSocketAddress[] addresses,
-                         Class<?> protocol, UserGroupInformation ticket)
-    throws IOException, InterruptedException {
+                         Class<? extends VersionedProtocol> protocol,
+                         UserGroupInformation ticket)
+      throws IOException, InterruptedException {
     if (addresses.length == 0) return new Writable[0];
 
     ParallelResults results = new ParallelResults(params.length);
@@ -1059,7 +835,7 @@ public class HBaseClient {
         ParallelCall call = new ParallelCall(params[i], results, i);
         try {
           Connection connection =
-            getConnection(addresses[i], protocol, ticket, call);
+              getConnection(addresses[i], protocol, ticket, call);
           connection.sendParam(call);             // send each parameter
         } catch (IOException e) {
           // log errors
@@ -1078,13 +854,13 @@ public class HBaseClient {
     }
   }
 
-  /** Get a connection from the pool, or create a new one and add it to the
+  /* Get a connection from the pool, or create a new one and add it to the
    * pool.  Connections to a given host/port are reused. */
   private Connection getConnection(InetSocketAddress addr,
-                                   Class<?> protocol,
+                                   Class<? extends VersionedProtocol> protocol,
                                    UserGroupInformation ticket,
                                    Call call)
-                                   throws IOException, InterruptedException {
+                                   throws IOException {
     if (!running.get()) {
       // the client is stopped
       throw new IOException("The client is stopped");
@@ -1115,16 +891,17 @@ public class HBaseClient {
 
   /**
    * This class holds the address and the user ticket. The client connections
-   * to servers are uniquely identified by <remoteAddress, protocol, ticket>
+   * to servers are uniquely identified by <remoteAddress, ticket>
    */
-  private static class ConnectionId {
+  protected static class ConnectionId {
     final InetSocketAddress address;
     final UserGroupInformation ticket;
-    Class<?> protocol;
+    Class<? extends VersionedProtocol> protocol;
     private static final int PRIME = 16777619;
 
-    ConnectionId(InetSocketAddress address, Class<?> protocol, 
-                 UserGroupInformation ticket) {
+    ConnectionId(InetSocketAddress address,
+        Class<? extends VersionedProtocol> protocol,
+        UserGroupInformation ticket) {
       this.protocol = protocol;
       this.address = address;
       this.ticket = ticket;
@@ -1134,7 +911,7 @@ public class HBaseClient {
       return address;
     }
 
-    Class<?> getProtocol() {
+    Class<? extends VersionedProtocol> getProtocol() {
       return protocol;
     }
 
@@ -1146,17 +923,18 @@ public class HBaseClient {
     public boolean equals(Object obj) {
      if (obj instanceof ConnectionId) {
        ConnectionId id = (ConnectionId) obj;
-       return address.equals(id.address) && protocol == id.protocol && 
+       return address.equals(id.address) && protocol == id.protocol &&
               ((ticket != null && ticket.equals(id.ticket)) ||
                (ticket == id.ticket));
      }
      return false;
     }
 
-    @Override
+    @Override  // simply use the default Object#hashcode() ?
     public int hashCode() {
-      return (address.hashCode() + PRIME * System.identityHashCode(protocol)) ^ 
-             (ticket == null ? 0 : ticket.hashCode());
+      return address.hashCode() + PRIME * (
+                  PRIME * System.identityHashCode(protocol) ^
+             (ticket == null ? 0 : ticket.hashCode()) );
     }
   }
 }

@@ -30,16 +30,17 @@ import java.io.DataInput;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
  * Container for Actions (i.e. Get, Delete, or Put), which are grouped by
  * regionName. Intended to be used with HConnectionManager.processBatch()
  */
-public final class MultiAction implements Writable {
+public final class MultiAction<R> implements Writable {
 
   // map of regions to lists of puts/gets/deletes for that region.
-  public Map<byte[], List<Action>> actions = new TreeMap<byte[], List<Action>>(
+  public Map<byte[], List<Action<R>>> actions = new TreeMap<byte[], List<Action<R>>>(
       Bytes.BYTES_COMPARATOR);
 
   public MultiAction() {
@@ -47,7 +48,7 @@ public final class MultiAction implements Writable {
 
   /**
    * Get the total number of Actions
-   * 
+   *
    * @return total number of Actions for all groups in this container.
    */
   public int size() {
@@ -62,25 +63,29 @@ public final class MultiAction implements Writable {
    * Add an Action to this container based on it's regionName. If the regionName
    * is wrong, the initial execution will fail, but will be automatically
    * retried after looking up the correct region.
-   * 
+   *
    * @param regionName
    * @param a
    */
-  public void add(byte[] regionName, Action a) {
-    List<Action> rsActions = actions.get(regionName);
+  public void add(byte[] regionName, Action<R> a) {
+    List<Action<R>> rsActions = actions.get(regionName);
     if (rsActions == null) {
-      rsActions = new ArrayList<Action>();
+      rsActions = new ArrayList<Action<R>>();
       actions.put(regionName, rsActions);
     }
     rsActions.add(a);
   }
 
+  public Set<byte[]> getRegions() {
+    return actions.keySet();
+  }
+
   /**
    * @return All actions from all regions in this container
    */
-  public List<Action> allActions() {
-    List<Action> res = new ArrayList<Action>();
-    for (List<Action> lst : actions.values()) {
+  public List<Action<R>> allActions() {
+    List<Action<R>> res = new ArrayList<Action<R>>();
+    for (List<Action<R>> lst : actions.values()) {
       res.addAll(lst);
     }
     return res;
@@ -89,12 +94,12 @@ public final class MultiAction implements Writable {
   @Override
   public void write(DataOutput out) throws IOException {
     out.writeInt(actions.size());
-    for (Map.Entry<byte[], List<Action>> e : actions.entrySet()) {
+    for (Map.Entry<byte[], List<Action<R>>> e : actions.entrySet()) {
       Bytes.writeByteArray(out, e.getKey());
-      List<Action> lst = e.getValue();
+      List<Action<R>> lst = e.getValue();
       out.writeInt(lst.size());
       for (Action a : lst) {
-        HbaseObjectWritable.writeObject(out, a, Action.class, null);
+        HbaseObjectWritable.writeObject(out, a, a.getClass(), null);
       }
     }
   }
@@ -106,7 +111,7 @@ public final class MultiAction implements Writable {
     for (int i = 0; i < mapSize; i++) {
       byte[] key = Bytes.readByteArray(in);
       int listSize = in.readInt();
-      List<Action> lst = new ArrayList<Action>(listSize);
+      List<Action<R>> lst = new ArrayList<Action<R>>(listSize);
       for (int j = 0; j < listSize; j++) {
         lst.add((Action) HbaseObjectWritable.readObject(in, null));
       }

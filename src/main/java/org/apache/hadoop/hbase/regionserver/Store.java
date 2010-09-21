@@ -192,7 +192,7 @@ public class Store implements HeapSize {
     }
 
     this.maxFilesToCompact = conf.getInt("hbase.hstore.compaction.max", 10);
-    this.storefiles = ImmutableList.copyOf(loadStoreFiles());
+    this.storefiles = sortAndClone(loadStoreFiles());
   }
 
   public HColumnDescriptor getFamily() {
@@ -227,7 +227,7 @@ public class Store implements HeapSize {
   }
 
   /*
-   * Creates a series of StoreFile loaded from the given directory.
+   * Creates an unsorted list of StoreFile loaded from the given directory.
    * @throws IOException
    */
   private List<StoreFile> loadStoreFiles()
@@ -264,7 +264,6 @@ public class Store implements HeapSize {
       }
       results.add(curfile);
     }
-    Collections.sort(results, StoreFile.Comparators.FLUSH_TIME);
     return results;
   }
 
@@ -365,7 +364,7 @@ public class Store implements HeapSize {
     try {
       ArrayList<StoreFile> newFiles = new ArrayList<StoreFile>(storefiles);
       newFiles.add(sf);
-      this.storefiles = ImmutableList.copyOf(newFiles);
+      this.storefiles = sortAndClone(newFiles);
       notifyChangedReadersObservers();
     } finally {
       this.lock.writeLock().unlock();
@@ -531,7 +530,7 @@ public class Store implements HeapSize {
     try {
       ArrayList<StoreFile> newList = new ArrayList<StoreFile>(storefiles);
       newList.add(sf);
-      storefiles = ImmutableList.copyOf(newList);
+      storefiles = sortAndClone(newList);
       this.memstore.clearSnapshot(set);
 
       // Tell listeners of the change in readers.
@@ -921,7 +920,7 @@ public class Store implements HeapSize {
           newStoreFiles.add(result);
         }
 
-	this.storefiles = ImmutableList.copyOf(newStoreFiles);
+        this.storefiles = sortAndClone(newStoreFiles);
 
         // Tell observers that list of StoreFiles has changed.
         notifyChangedReadersObservers();
@@ -950,6 +949,12 @@ public class Store implements HeapSize {
       this.lock.writeLock().unlock();
     }
     return result;
+  }
+
+  public ImmutableList<StoreFile> sortAndClone(List<StoreFile> storeFiles) {
+    Collections.sort(storeFiles, StoreFile.Comparators.FLUSH_TIME);
+    ImmutableList<StoreFile> newList = ImmutableList.copyOf(storeFiles);
+    return newList;
   }
 
   // ////////////////////////////////////////////////////////////////////////////
@@ -1380,7 +1385,7 @@ public class Store implements HeapSize {
   }
 
   public static final long FIXED_OVERHEAD = ClassSize.align(
-      ClassSize.OBJECT + (14 * ClassSize.REFERENCE) +
+      ClassSize.OBJECT + (15 * ClassSize.REFERENCE) +
       (4 * Bytes.SIZEOF_LONG) + (3 * Bytes.SIZEOF_INT) + (Bytes.SIZEOF_BOOLEAN * 2));
 
   public static final long DEEP_OVERHEAD = ClassSize.align(FIXED_OVERHEAD +

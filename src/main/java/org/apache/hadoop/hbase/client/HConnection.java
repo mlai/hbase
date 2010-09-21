@@ -19,20 +19,22 @@
  */
 package org.apache.hadoop.hbase.client;
 
-import org.apache.hadoop.hbase.HRegionInfo;
-import org.apache.hadoop.hbase.HRegionLocation;
-import org.apache.hadoop.hbase.HServerAddress;
-import org.apache.hadoop.hbase.HTableDescriptor;
-import org.apache.hadoop.hbase.MasterNotRunningException;
-import org.apache.hadoop.hbase.ipc.HMasterInterface;
-import org.apache.hadoop.hbase.ipc.HRegionInterface;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWrapper;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+
+import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HRegionLocation;
+import org.apache.hadoop.hbase.HServerAddress;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.MasterNotRunningException;
+import org.apache.hadoop.hbase.ZooKeeperConnectionException;
+import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.HMasterInterface;
+import org.apache.hadoop.hbase.ipc.HRegionInterface;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 
 /**
  * Cluster connection.
@@ -40,29 +42,23 @@ import java.util.concurrent.ExecutorService;
  */
 public interface HConnection {
   /**
-   * Retrieve ZooKeeperWrapper used by the connection.
-   * @return ZooKeeperWrapper handle being used by the connection.
+   * Retrieve ZooKeeperWatcher used by the connection.
+   * @return ZooKeeperWatcher handle being used by the connection.
    * @throws IOException if a remote or network exception occurs
    */
-  public ZooKeeperWrapper getZooKeeperWrapper() throws IOException;
+  public ZooKeeperWatcher getZooKeeperWatcher() throws IOException;
 
   /**
    * @return proxy connection to master server for this instance
    * @throws MasterNotRunningException if the master is not running
+   * @throws ZooKeeperConnectionException if unable to connect to zookeeper
    */
-  public HMasterInterface getMaster() throws MasterNotRunningException;
+  public HMasterInterface getMaster()
+  throws MasterNotRunningException, ZooKeeperConnectionException;
 
   /** @return - true if the master server is running */
-  public boolean isMasterRunning();
-
-  /**
-   * Checks if <code>tableName</code> exists.
-   * @param tableName Table to check.
-   * @return True if table exists already.
-   * @throws MasterNotRunningException if the master is not running
-   */
-  public boolean tableExists(final byte [] tableName)
-  throws MasterNotRunningException;
+  public boolean isMasterRunning()
+  throws MasterNotRunningException, ZooKeeperConnectionException;
 
   /**
    * A table that isTableEnabled == false and isTableDisabled == false
@@ -113,7 +109,7 @@ public interface HConnection {
    * lives in.
    * @param tableName name of the table <i>row</i> is in
    * @param row row key you're trying to find the region of
-   * @return HRegionLocation that describes where to find the reigon in
+   * @return HRegionLocation that describes where to find the region in
    * question
    * @throws IOException if a remote or network exception occurs
    */
@@ -127,16 +123,43 @@ public interface HConnection {
   public void clearRegionCache();
 
   /**
+   * Allows flushing the region cache of all locations that pertain to
+   * <code>tableName</code>
+   * @param tableName Name of the table whose regions we are to remove from
+   * cache.
+   */
+  public void clearRegionCache(final byte [] tableName);
+
+  /**
    * Find the location of the region of <i>tableName</i> that <i>row</i>
    * lives in, ignoring any value that might be in the cache.
    * @param tableName name of the table <i>row</i> is in
    * @param row row key you're trying to find the region of
-   * @return HRegionLocation that describes where to find the reigon in
+   * @return HRegionLocation that describes where to find the region in
    * question
    * @throws IOException if a remote or network exception occurs
    */
   public HRegionLocation relocateRegion(final byte [] tableName,
       final byte [] row)
+  throws IOException;
+
+  /**
+   * Gets the location of the region of <i>regionName</i>.
+   * @param regionName name of the region to locate
+   * @return HRegionLocation that describes where to find the region in
+   * question
+   * @throws IOException if a remote or network exception occurs
+   */
+  public HRegionLocation locateRegion(final byte [] regionName)
+  throws IOException;
+
+  /**
+   * Gets the locations of all regions in the specified table, <i>tableName</i>.
+   * @param tableName table to get regions of
+   * @return list of region locations for all regions of table
+   * @throws IOException
+   */
+  public List<HRegionLocation> locateRegions(byte[] tableName)
   throws IOException;
 
   /**
@@ -213,6 +236,38 @@ public interface HConnection {
       ExecutorService pool, Result[] results)
   throws IOException;
 
+  /**
+   * Parameterized batch processing, allowing varying return types for different
+   * {@link Row} implementations.
+   */
+  public <R> R[] processBatchCallback(List<? extends Row> list,
+      byte[] tableName,
+      ExecutorService pool,
+      HTable.BatchCallback<R> callback) throws IOException;
+
+
+  /**
+   * Executes the given {@link HTable.BatchCall} callable for each row in the
+   * given list and invokes {@link HTable.BatchCallback#update(byte[], byte[], Object)}
+   * for each result returned.
+   *
+   * @param protocol the protocol interface being called
+   * @param list a list of rows for which the callable should be invoked
+   * @param tableName table name for the coprocessor invoked
+   * @param pool ExecutorService used to submit the calls per row
+   * @param call instance on which to invoke {@link HTable.BatchCall#call(Object)} for each row
+   * @param callback instance on which to invoke {@link HTable.BatchCallback#update(byte[], byte[], Object)} for each result
+   * @param <T> the protocol interface type
+   * @param <R> the callable's return type
+   * @throws IOException
+   */
+  public <T extends CoprocessorProtocol,R> void processExecs(
+      final Class<T> protocol,
+      List<? extends Row> list,
+      final byte[] tableName,
+      ExecutorService pool,
+      final HTable.BatchCall<T,R> call,
+      final HTable.BatchCallback<R> callback) throws IOException, Throwable;
   /**
    * Process a batch of Puts. Does the retries.
    * @param list A batch of Puts to process.

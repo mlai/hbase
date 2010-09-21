@@ -41,6 +41,7 @@ import org.apache.hadoop.hbase.util.Threads;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.zookeeper.KeeperException;
 
 /**
  * This class creates a single process HBase cluster.
@@ -77,7 +78,7 @@ public class MiniHBaseCluster {
       new ConcurrentHashMap<HServerInfo, IOException>();
 
     public MiniHBaseClusterMaster(final Configuration conf)
-    throws IOException {
+    throws IOException, KeeperException, InterruptedException {
       super(conf);
     }
 
@@ -146,7 +147,7 @@ public class MiniHBaseCluster {
     private UserGroupInformation user = null;
 
     public MiniHBaseClusterRegionServer(Configuration conf)
-        throws IOException {
+        throws IOException, InterruptedException {
       super(conf);
       this.user = UserGroupInformation.getCurrentUser();
     }
@@ -164,8 +165,8 @@ public class MiniHBaseCluster {
      */
 
     @Override
-    protected void init(MapWritable c) throws IOException {
-      super.init(c);
+    protected void handleReportForDutyResponse(MapWritable c) throws IOException {
+      super.handleReportForDutyResponse(c);
       // Run this thread to shutdown our filesystem on way out.
       this.shutdownThread = new SingleFileSystemShutdownThread(getFileSystem());
     }
@@ -179,6 +180,8 @@ public class MiniHBaseCluster {
             return null;
           }
         });
+      } catch (Throwable t) {
+        LOG.error("Exception in run", t);
       } finally {
         // Run this on the way out.
         if (this.shutdownThread != null) {
@@ -225,6 +228,8 @@ public class MiniHBaseCluster {
       try {
         LOG.info("Hook closing fs=" + this.fs);
         this.fs.close();
+      } catch (NullPointerException npe) {
+        LOG.debug("Need to fix these: " + npe.toString());
       } catch (IOException e) {
         LOG.warn("Running hook", e);
       }
@@ -337,7 +342,7 @@ public class MiniHBaseCluster {
     JVMClusterUtil.RegionServerThread server =
       hbaseCluster.getRegionServers().get(serverNumber);
     LOG.info("Stopping " + server.toString());
-    server.getRegionServer().stop();
+    server.getRegionServer().stop("Stopping rs " + serverNumber);
     return server;
   }
 
@@ -376,7 +381,7 @@ public class MiniHBaseCluster {
   public void flushcache() throws IOException {
     for (JVMClusterUtil.RegionServerThread t:
         this.hbaseCluster.getRegionServers()) {
-      for(HRegion r: t.getRegionServer().getOnlineRegions()) {
+      for(HRegion r: t.getRegionServer().getOnlineRegionsLocalContext()) {
         r.flushcache();
       }
     }
@@ -389,7 +394,7 @@ public class MiniHBaseCluster {
   public void flushcache(byte [] tableName) throws IOException {
     for (JVMClusterUtil.RegionServerThread t:
         this.hbaseCluster.getRegionServers()) {
-      for(HRegion r: t.getRegionServer().getOnlineRegions()) {
+      for(HRegion r: t.getRegionServer().getOnlineRegionsLocalContext()) {
         if(Bytes.equals(r.getTableDesc().getName(), tableName)) {
           r.flushcache();
         }
@@ -424,7 +429,7 @@ public class MiniHBaseCluster {
     List<HRegion> ret = new ArrayList<HRegion>();
     for (JVMClusterUtil.RegionServerThread rst : getRegionServerThreads()) {
       HRegionServer hrs = rst.getRegionServer();
-      for (HRegion region : hrs.getOnlineRegions()) {
+      for (HRegion region : hrs.getOnlineRegionsLocalContext()) {
         if (Bytes.equals(region.getTableDesc().getName(), tableName)) {
           ret.add(region);
         }

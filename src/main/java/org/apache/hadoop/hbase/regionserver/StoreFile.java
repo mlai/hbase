@@ -291,9 +291,6 @@ public class StoreFile {
    * @return This files maximum edit sequence id.
    */
   public long getMaxSequenceId() {
-    if (this.sequenceid == -1) {
-      throw new IllegalAccessError("Has not been initialized");
-    }
     return this.sequenceid;
   }
 
@@ -370,11 +367,9 @@ public class StoreFile {
    * @see #closeReader()
    */
   private Reader open() throws IOException {
-
     if (this.reader != null) {
       throw new IllegalAccessError("Already open");
     }
-
     if (isReference()) {
       this.reader = new HalfStoreFileReader(this.fs, this.referencePath,
           getBlockCache(), this.reference);
@@ -382,7 +377,6 @@ public class StoreFile {
       this.reader = new Reader(this.fs, this.path, getBlockCache(),
           this.inMemory);
     }
-
     // Load up indices and fileinfo.
     metadataMap = Collections.unmodifiableMap(this.reader.loadFileInfo());
     // Read in our metadata.
@@ -400,6 +394,7 @@ public class StoreFile {
         }
       }
     }
+    this.reader.setSequenceID(this.sequenceid);
 
     b = metadataMap.get(MAJOR_COMPACTION_KEY);
     if (b != null) {
@@ -409,6 +404,10 @@ public class StoreFile {
       } else {
         this.majorCompaction.set(mc);
       }
+    } else {
+      // Presume it is not major compacted if it doesn't explicity say so
+      // HFileOutputFormat explicitly sets the major compacted key.
+      this.majorCompaction = new AtomicBoolean(false);
     }
 
     if (this.bloomType != BloomType.NONE) {
@@ -868,6 +867,7 @@ public class StoreFile {
     protected BloomType bloomFilterType;
     private final HFile.Reader reader;
     protected TimeRangeTracker timeRangeTracker = null;
+    protected long sequenceID = -1;
 
     public Reader(FileSystem fs, Path path, BlockCache blockCache, boolean inMemory)
         throws IOException {
@@ -1049,6 +1049,14 @@ public class StoreFile {
 
     public BloomType getBloomFilterType() {
       return this.bloomFilterType;
+    }
+
+    public long getSequenceID() {
+      return sequenceID;
+    }
+
+    public void setSequenceID(long sequenceID) {
+      this.sequenceID = sequenceID;
     }
   }
 
