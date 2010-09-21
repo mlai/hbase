@@ -266,7 +266,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
    * @throws InterruptedException 
    */
   public HRegionServer(Configuration conf) throws IOException, InterruptedException {
-    machineName = DNS.getDefaultHost(conf.get(
+    this.machineName = DNS.getDefaultHost(conf.get(
         "hbase.regionserver.dns.interface", "default"), conf.get(
         "hbase.regionserver.dns.nameserver", "default"));
     String addressStr = machineName
@@ -437,21 +437,21 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
 
   private void initializeZooKeeper() throws IOException, InterruptedException {
     // open connection to zookeeper and set primary watcher
-    zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER + "-"
-        + serverInfo.getServerName(), this);
+    zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER +
+      serverInfo.getServerAddress().getPort(), this);
+
+    this.clusterStatusTracker = new ClusterStatusTracker(this.zooKeeper, this);
+    this.clusterStatusTracker.start();
+    this.clusterStatusTracker.blockUntilAvailable();
 
     // create the master address manager, register with zk, and start it
     masterAddressManager = new MasterAddressTracker(zooKeeper, this);
     masterAddressManager.start();
 
-    // create the catalog tracker and start it
+    // Create the catalog tracker and start it; 
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.connection,
       this, this.conf.getInt("hbase.regionserver.catalog.timeout", Integer.MAX_VALUE));
     catalogTracker.start();
-
-    this.clusterStatusTracker = new ClusterStatusTracker(this.zooKeeper, this);
-    this.clusterStatusTracker.start();
-    this.clusterStatusTracker.blockUntilAvailable();
   }
 
   /**
@@ -1178,8 +1178,6 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     // Start Server.  This service is like leases in that it internally runs
     // a thread.
     this.server.start();
-    LOG.info("HRegionServer started at: "
-        + this.serverInfo.getServerAddress().toString());
   }
 
   /*
@@ -1916,7 +1914,7 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   public void openRegion(HRegionInfo region) {
     LOG.info("Received request to open region: " +
       region.getRegionNameAsString());
-    if(region.isRootRegion()) {
+    if (region.isRootRegion()) {
       this.service.submit(new OpenRootHandler(this, this, region));
     } else if(region.isMetaRegion()) {
       this.service.submit(new OpenMetaHandler(this, this, region));
@@ -2327,14 +2325,12 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
           }
         }
       } catch (IOException ioe) {
-        if (multi.size() == 1) {
-          throw ioe;
-        } else {
-          LOG.error("Exception found while attempting " + action.toString() +
-            " " + StringUtils.stringifyException(ioe));
-          response.add(regionName,null);
-          // stop processing on this region, continue to the next.
-        }
+        if (multi.size() == 1) throw ioe;
+        LOG.debug("Exception processing " +
+          org.apache.commons.lang.StringUtils.abbreviate(action.toString(), 64) +
+          "; " + ioe.getMessage());
+        response.add(regionName,null);
+        // stop processing on this region, continue to the next.
       }
     }
     return response;
