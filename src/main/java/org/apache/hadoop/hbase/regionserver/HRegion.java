@@ -3059,7 +3059,7 @@ public class HRegion implements HeapSize { // , Writable{
 
     try {
       Method method = protocol.getMethod(
-          call.getMethodName(), call.getParameterTypes());
+          call.getMethodName(), call.getParameterClasses());
       method.setAccessible(true);
       returnType = method.getReturnType();
 

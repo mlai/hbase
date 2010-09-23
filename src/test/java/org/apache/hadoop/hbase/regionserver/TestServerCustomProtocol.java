@@ -144,8 +144,9 @@ public class TestServerCustomProtocol {
 
     List<? extends Row> rows = Lists.newArrayList(
         new Get(ROW_A), new Get(ROW_B), new Get(ROW_C));
-    Map<byte[],String> results = table.exec(PingProtocol.class, rows,
-        new HTable.BatchCall<PingProtocol,String>() {
+    Map<byte[],String> results =
+        table.exec(PingProtocol.class, rows,
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
           }
@@ -157,13 +158,39 @@ public class TestServerCustomProtocol {
   }
 
   @Test
+  public void testSingleMethod() throws Throwable {
+    HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
+
+    List<? extends Row> rows = Lists.newArrayList(
+        new Get(ROW_A), new Get(ROW_B), new Get(ROW_C));
+
+    Batch.Call<PingProtocol,String> call =  Batch.returning(PingProtocol.class, "ping");
+    Map<byte[],String> results =
+        table.exec(PingProtocol.class, rows, call);
+
+
+    verifyRegionResults(table, results, ROW_A);
+    verifyRegionResults(table, results, ROW_B);
+    verifyRegionResults(table, results, ROW_C);
+
+    Batch.Call<PingProtocol,String> helloCall =  Batch.returning(PingProtocol.class, "hello", "NAME");
+    results =
+        table.exec(PingProtocol.class, rows, helloCall);
+
+
+    verifyRegionResults(table, results, "Hello, NAME", ROW_A);
+    verifyRegionResults(table, results, "Hello, NAME", ROW_B);
+    verifyRegionResults(table, results, "Hello, NAME", ROW_C);
+  }
+
+  @Test
   public void testRowRange() throws Throwable {
     HTable table = new HTable(util.getConfiguration(), TEST_TABLE);
 
     // test empty range
     Scan scan = new Scan();
     Map<byte[],String> results = table.exec(PingProtocol.class, scan,
-        new HTable.BatchCall<PingProtocol,String>() {
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
           }
@@ -176,7 +203,7 @@ public class TestServerCustomProtocol {
     // test start row + empty end
     scan = new Scan(ROW_BC);
     results = table.exec(PingProtocol.class, scan,
-        new HTable.BatchCall<PingProtocol,String>() {
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
           }
@@ -191,7 +218,7 @@ public class TestServerCustomProtocol {
     // test empty start + end
     scan = new Scan(HConstants.EMPTY_START_ROW, ROW_BC);
     results = table.exec(PingProtocol.class, scan,
-        new HTable.BatchCall<PingProtocol,String>() {
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
           }
@@ -206,7 +233,7 @@ public class TestServerCustomProtocol {
     // test explicit start + end
     scan = new Scan(ROW_AB, ROW_BC);
     results = table.exec(PingProtocol.class, scan,
-        new HTable.BatchCall<PingProtocol,String>() {
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
           }
@@ -221,7 +248,7 @@ public class TestServerCustomProtocol {
     // test single region
     scan = new Scan(ROW_B, ROW_BC);
     results = table.exec(PingProtocol.class, scan,
-        new HTable.BatchCall<PingProtocol,String>() {
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.ping();
           }
@@ -243,7 +270,7 @@ public class TestServerCustomProtocol {
     List<? extends Row> rows = Lists.newArrayList(
         new Get(ROW_A), new Get(ROW_B), new Get(ROW_C));
     Map<byte[],String> results = table.exec(PingProtocol.class, rows,
-        new HTable.BatchCall<PingProtocol,String>() {
+        new Batch.Call<PingProtocol,String>() {
           public String call(PingProtocol instance) {
             return instance.hello(instance.ping());
           }
