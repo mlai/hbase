@@ -532,6 +532,10 @@ Release 0.21.0 - Unreleased
                the region
    HBASE-3018  Bulk assignment on startup runs serially through the cluster
                servers assigning in bulk to one at a time
+   HBASE-3023  NPE processing server crash in MetaReader. getServerUserRegions
+   HBASE-3024  NPE processing server crash in MetaEditor.addDaughter
+   HBASE-3026  Fixup of "missing" daughters on split is too aggressive
+   HBASE-3003  ClassSize constants dont use 'final'
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -922,6 +926,8 @@ Release 0.21.0 - Unreleased
    HBASE-2941  port HADOOP-6713 - threading scalability for RPC reads - to HBase
    HBASE-2782  QOS for META table access
    HBASE-3017  More log pruning
+   HBASE-3022  Change format of enum messages in o.a.h.h.executor package
+   HBASE-3001  Ship dependency jars to the cluster for all jobs
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
@@ -975,6 +981,9 @@ Release 0.21.0 - Unreleased
    HBASE-410   [testing] Speed up the test suite
    HBASE-2041  Change WAL default configuration values
    HBASE-2997  Performance fixes - profiler driven
+   HBASE-2450  For single row reads of specific columns, seek to the 
+   	       first column in HFiles rather than start of row
+	       (Pranav via Ryan, some Ryan)
 
 
 Release 0.20.0 - Tue Sep  8 12:53:05 PDT 2009
