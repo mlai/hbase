@@ -23,6 +23,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.io.HbaseObjectWritable;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
+import org.apache.hadoop.hbase.ipc.Invocation;
 import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.DataInput;
@@ -33,14 +34,11 @@ import java.lang.reflect.Method;
 /**
  * Represents an arbitrary protocol method invocation.
  */
-public class Exec implements Row {
+public class Exec extends Invocation implements Row {
   private Configuration conf = HBaseConfiguration.create();
   /** Row key used as a reference for any region lookups */
   private byte[] referenceRow;
   private Class<? extends CoprocessorProtocol> protocol;
-  private String methodName;
-  private Class[] parameterTypes;
-  private Object[] parameters;
 
   public Exec() {
   }
@@ -49,29 +47,14 @@ public class Exec implements Row {
       byte[] row,
       Class<? extends CoprocessorProtocol> protocol,
       Method method, Object[] parameters) {
-
+    super(method, parameters);
     this.conf = configuration;
     this.referenceRow = row;
     this.protocol = protocol;
-    this.methodName = method.getName();
-    this.parameterTypes = method.getParameterTypes();
-    this.parameters = parameters;
   }
 
   public Class<? extends CoprocessorProtocol> getProtocol() {
     return protocol;
-  }
-
-  public String getMethodName() {
-    return methodName;
-  }
-
-  public Class[] getParameterTypes() {
-    return parameterTypes;
-  }
-
-  public Object[] getParameters() {
-    return parameters;
   }
 
   public byte[] getRow() {
@@ -84,18 +67,14 @@ public class Exec implements Row {
 
   @Override
   public void write(DataOutput out) throws IOException {
+    super.write(out);
     Bytes.writeByteArray(out, referenceRow);
     out.writeUTF(protocol.getName());
-    out.writeUTF(this.methodName);
-    out.writeInt(parameterTypes.length);
-    for (int i = 0; i < parameterTypes.length; i++) {
-      HbaseObjectWritable.writeObject(out, parameters[i], parameterTypes[i],
-                                 conf);
-    }
   }
 
   @Override
   public void readFields(DataInput in) throws IOException {
+    super.readFields(in);
     referenceRow = Bytes.readByteArray(in);
     String protocolName = in.readUTF();
     try {
@@ -103,15 +82,6 @@ public class Exec implements Row {
     }
     catch (ClassNotFoundException cnfe) {
       throw new IOException("Protocol class "+protocolName+" not found", cnfe);
-    }
-    methodName = in.readUTF();
-    parameters = new Object[in.readInt()];
-    parameterTypes = new Class[parameters.length];
-    HbaseObjectWritable objectWritable = new HbaseObjectWritable();
-    for (int i = 0; i < parameters.length; i++) {
-      parameters[i] = HbaseObjectWritable.readObject(in, objectWritable,
-        this.conf);
-      parameterTypes[i] = objectWritable.getDeclaredClass();
     }
   }
 }

@@ -243,20 +243,20 @@ public interface HConnection {
   public <R> R[] processBatchCallback(List<? extends Row> list,
       byte[] tableName,
       ExecutorService pool,
-      HTable.BatchCallback<R> callback) throws IOException;
+      Batch.Callback<R> callback) throws IOException;
 
 
   /**
-   * Executes the given {@link HTable.BatchCall} callable for each row in the
-   * given list and invokes {@link HTable.BatchCallback#update(byte[], byte[], Object)}
+   * Executes the given {@link org.apache.hadoop.hbase.client.Batch.Call} callable for each row in the
+   * given list and invokes {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)}
    * for each result returned.
    *
    * @param protocol the protocol interface being called
    * @param list a list of rows for which the callable should be invoked
    * @param tableName table name for the coprocessor invoked
    * @param pool ExecutorService used to submit the calls per row
-   * @param call instance on which to invoke {@link HTable.BatchCall#call(Object)} for each row
-   * @param callback instance on which to invoke {@link HTable.BatchCallback#update(byte[], byte[], Object)} for each result
+   * @param call instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Call#call(Object)} for each row
+   * @param callback instance on which to invoke {@link org.apache.hadoop.hbase.client.Batch.Callback#update(byte[], byte[], Object)} for each result
    * @param <T> the protocol interface type
    * @param <R> the callable's return type
    * @throws IOException
@@ -266,8 +266,8 @@ public interface HConnection {
       List<? extends Row> list,
       final byte[] tableName,
       ExecutorService pool,
-      final HTable.BatchCall<T,R> call,
-      final HTable.BatchCallback<R> callback) throws IOException, Throwable;
+      final Batch.Call<T,R> call,
+      final Batch.Callback<R> callback) throws IOException, Throwable;
   /**
    * Process a batch of Puts. Does the retries.
    * @param list A batch of Puts to process.
