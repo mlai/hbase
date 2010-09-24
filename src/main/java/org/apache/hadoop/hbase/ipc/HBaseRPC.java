@@ -71,14 +71,14 @@ public class HBaseRPC {
   // so that we dont' get the logging of this class's invocations by doing our
   // blanket enabling DEBUG on the o.a.h.h. package.
   protected static final Log LOG =
-    LogFactory.getLog("org.apache.hadoop.ipc.HbaseRPC");
+    LogFactory.getLog("org.apache.hadoop.ipc.HBaseRPC");
 
   private HBaseRPC() {
     super();
   }                                  // no public ctor
 
   private static final String RPC_ENGINE_PROP = "hbase.rpc.engine";
-  
+
   // cache of RpcEngines by protocol
   private static final Map<Class,RpcEngine> PROTOCOL_ENGINES
     = new HashMap<Class,RpcEngine>();
@@ -98,8 +98,13 @@ public class HBaseRPC {
                                                           Configuration conf) {
     RpcEngine engine = PROTOCOL_ENGINES.get(protocol);
     if (engine == null) {
+      // check for a configured default engine
+      Class<?> defaultEngine =
+          conf.getClass(RPC_ENGINE_PROP, WritableRpcEngine.class);
+
+      // check for a per interface override
       Class<?> impl = conf.getClass(RPC_ENGINE_PROP+"."+protocol.getName(),
-                                    WritableRpcEngine.class);
+                                    defaultEngine);
       LOG.info("Using "+impl.getName()+" for "+protocol.getName());
       engine = (RpcEngine) ReflectionUtils.newInstance(impl, conf);
       if (protocol.isInterface())

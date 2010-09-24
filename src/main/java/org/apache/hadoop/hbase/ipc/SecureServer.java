@@ -34,7 +34,6 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.ipc.VersionedProtocol;
-import org.apache.hadoop.ipc.metrics.RpcDetailedMetrics;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
@@ -44,7 +43,6 @@ import org.apache.hadoop.security.authorize.ServiceAuthorizationManager;
 import org.apache.hadoop.security.token.SecretManager;
 import org.apache.hadoop.security.token.SecretManager.InvalidToken;
 import org.apache.hadoop.security.token.TokenIdentifier;
-import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
 
 import javax.security.sasl.Sasl;
@@ -85,9 +83,6 @@ public abstract class SecureServer extends HBaseServer {
     LogFactory.getLog("SecurityLogger.org.apache.hadoop.ipc.HBaseServer");
   private static final String AUTH_FAILED_FOR = "Auth failed for ";
   private static final String AUTH_SUCCESSFULL_FOR = "Auth successfull for ";
-
-  protected HBaseRpcMetrics rpcMetrics;
-  protected RpcDetailedMetrics rpcDetailedMetrics;
 
   private SecretManager<TokenIdentifier> secretManager;
 
@@ -728,9 +723,6 @@ public abstract class SecureServer extends HBaseServer {
       conf.getBoolean(HADOOP_SECURITY_AUTHORIZATION, false);
     this.isSecurityEnabled = UserGroupInformation.isSecurityEnabled();
 
-    this.rpcDetailedMetrics = new RpcDetailedMetrics(serverName,
-                            Integer.toString(this.port));
-
     if (isSecurityEnabled) {
       HBaseSaslRpcServer.init(conf);
     }
@@ -809,9 +801,6 @@ public abstract class SecureServer extends HBaseServer {
   /** Stops the service.  No new calls will be handled after this is called. */
   public synchronized void stop() {
     super.stop();
-    if (this.rpcDetailedMetrics != null) {
-      this.rpcDetailedMetrics.shutdown();
-    }
   }
 
   public void setSecretManager(SecretManager<? extends TokenIdentifier> secretManager) {
