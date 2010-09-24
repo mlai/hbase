@@ -86,7 +86,6 @@ public abstract class SecureServer extends HBaseServer {
   private static final String AUTH_FAILED_FOR = "Auth failed for ";
   private static final String AUTH_SUCCESSFULL_FOR = "Auth successfull for ";
 
-  protected HBaseRpcMetrics rpcMetrics;
   protected RpcDetailedMetrics rpcDetailedMetrics;
 
   private SecretManager<TokenIdentifier> secretManager;
