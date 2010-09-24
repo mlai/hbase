@@ -139,7 +139,7 @@ public class TestCommandTarget {
     // scan: for all regions
     scan = new Scan(ROWS[rowSeperator1 - 3], ROWS[rowSeperator2  + 2]);
     results = table.exec(ColumnAggregationProtocol.class, scan,
-        new HTable.BatchCall<ColumnAggregationProtocol,Integer>() {
+        new Batch.Call<ColumnAggregationProtocol,Integer>() {
           public Integer call(ColumnAggregationProtocol instance) throws IOException{
             return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
           }
@@ -159,7 +159,7 @@ public class TestCommandTarget {
     // scan: for region 2 and region 3
     scan = new Scan(ROWS[rowSeperator1 + 1], ROWS[rowSeperator2  + 2]);
     results = table.exec(ColumnAggregationProtocol.class, scan,
-        new HTable.BatchCall<ColumnAggregationProtocol,Integer>() {
+        new Batch.Call<ColumnAggregationProtocol,Integer>() {
           public Integer call(ColumnAggregationProtocol instance) throws IOException{
             return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
           }
