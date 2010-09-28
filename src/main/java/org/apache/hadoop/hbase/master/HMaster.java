@@ -162,8 +162,11 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   ExecutorService executorService;
 
   private LoadBalancer balancer = new LoadBalancer();
-  private Chore balancerChore;
-  private volatile boolean balance = true;
+  private Thread balancerChore;
+  // If 'true', the balancer is 'on'.  If 'false', the balancer will not run.
+  private volatile boolean balanceSwitch = true;
+
+  private Thread catalogJanitorChore;
 
   /**
    * Initializes the HMaster. The steps are as follows:
@@ -248,7 +251,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     this.connection = HConnectionManager.getConnection(conf);
     this.executorService = new ExecutorService(getServerName());
 
-    this.serverManager = new ServerManager(this, this);
+    this.serverManager = new ServerManager(this, this, this.freshClusterStartup);
 
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.connection,
       this, conf.getInt("hbase.master.catalog.timeout", Integer.MAX_VALUE));
@@ -311,16 +314,20 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
       this.serverManager.waitForRegionServers();
 
       // Start assignment of user regions, startup or failure
-      if (!this.stopped) {
-        if (this.freshClusterStartup) {
-          clusterStarterInitializations(this.fileSystemManager,
-            this.serverManager, this.catalogTracker, this.assignmentManager);
-        } else {
-          // Process existing unassigned nodes in ZK, read all regions from META,
-          // rebuild in-memory state.
-          this.assignmentManager.processFailover();
-        }
+      if (this.freshClusterStartup) {
+        clusterStarterInitializations(this.fileSystemManager,
+          this.serverManager, this.catalogTracker, this.assignmentManager);
+      } else {
+        // Process existing unassigned nodes in ZK, read all regions from META,
+        // rebuild in-memory state.
+        this.assignmentManager.processFailover();
       }
+
+      // Start balancer and meta catalog janitor after meta and regions have
+      // been assigned.
+      this.balancerChore = getAndStartBalancerChore(this);
+      this.catalogJanitorChore =
+        Threads.setDaemonThreadRunning(new CatalogJanitor(this, this));
 
       // Check if we should stop every second.
       Sleeper sleeper = new Sleeper(1000, this);
@@ -328,26 +335,18 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     } catch (Throwable t) {
       abort("Unhandled exception. Starting shutdown.", t);
     }
+    // Stop balancer and meta catalog janitor
+    if (this.balancerChore != null) this.balancerChore.interrupt();
+    if (this.catalogJanitorChore != null) this.catalogJanitorChore.interrupt();
 
     // Wait for all the remaining region servers to report in IFF we were
     // running a cluster shutdown AND we were NOT aborting.
     if (!this.abort && this.serverManager.isClusterShutdown()) {
       this.serverManager.letRegionServersShutdown();
     }
-
-    // Clean up and close up shop
-    if (this.infoServer != null) {
-      LOG.info("Stopping infoServer");
-      try {
-        this.infoServer.stop();
-      } catch (Exception ex) {
-        ex.printStackTrace();
-      }
-    }
-    this.rpcServer.stop();
-    if (this.balancerChore != null) this.balancerChore.interrupt();
+    stopServiceThreads();
+    // Stop services started up in the constructor.
     this.activeMasterManager.stop();
-    this.executorService.shutdown();
     HConnectionManager.deleteConnection(this.conf, true);
     this.zooKeeper.close();
     LOG.info("HMaster main thread exiting");
@@ -452,9 +451,9 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     try {
       // Start the executor service pools
       this.executorService.startExecutorService(ExecutorType.MASTER_OPEN_REGION,
-        conf.getInt("hbase.master.executor.openregion.threads", 5));
+        conf.getInt("hbase.master.executor.openregion.threads", 10));
       this.executorService.startExecutorService(ExecutorType.MASTER_CLOSE_REGION,
-        conf.getInt("hbase.master.executor.closeregion.threads", 5));
+        conf.getInt("hbase.master.executor.closeregion.threads", 10));
       this.executorService.startExecutorService(ExecutorType.MASTER_SERVER_OPERATIONS,
         conf.getInt("hbase.master.executor.serverops.threads", 5));
       this.executorService.startExecutorService(ExecutorType.MASTER_TABLE_OPERATIONS,
@@ -468,7 +467,6 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
         this.infoServer.setAttribute(MASTER, this);
         this.infoServer.start();
       }
-      this.balancerChore = getAndStartBalancerChore(this);
 
       // Start the server last so everything else is running before we start
       // receiving requests.
@@ -489,10 +487,26 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     }
   }
 
-  private static Chore getAndStartBalancerChore(final HMaster master) {
-    String name = master.getServerName() + "-balancerChore";
-    int period = master.getConfiguration().
-      getInt("hbase.master.balancer.period", 3000000);
+  private void stopServiceThreads() {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Stopping service threads");
+    }
+    this.rpcServer.stop();
+    // Clean up and close up shop
+    if (this.infoServer != null) {
+      LOG.info("Stopping infoServer");
+      try {
+        this.infoServer.stop();
+      } catch (Exception ex) {
+        ex.printStackTrace();
+      }
+    }
+    this.executorService.shutdown();
+  }
+
+  private static Thread getAndStartBalancerChore(final HMaster master) {
+    String name = master.getServerName() + "-BalancerChore";
+    int period = master.getConfiguration().getInt("hbase.balancer.period", 300000);
     // Start up the load balancer chore
     Chore chore = new Chore(name, period, master) {
       @Override
@@ -500,8 +514,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
         master.balance();
       }
     };
-    Threads.setDaemonThreadRunning(chore, name);
-    return chore;
+    return Threads.setDaemonThreadRunning(chore);
   }
 
   public MapWritable regionServerStartup(final HServerInfo serverInfo)
@@ -561,19 +574,18 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     return !isStopped();
   }
 
-  /**
-   * Run the balancer.
-   * @return True if balancer ran, false otherwise.
-   */
+  @Override
   public boolean balance() {
     // If balance not true, don't run balancer.
-    if (!this.balance) return false;
+    if (!this.balanceSwitch) return false;
     synchronized (this.balancer) {
       // Only allow one balance run at at time.
       if (this.assignmentManager.isRegionsInTransition()) {
-        LOG.debug("Not running balancer because regions in transition: " +
+        LOG.debug("Not running balancer because " +
+          this.assignmentManager.getRegionsInTransition().size() +
+          " region(s) in transition: " +
           org.apache.commons.lang.StringUtils.
-            abbreviate(this.assignmentManager.getRegionsInTransition().toString(), 64));
+            abbreviate(this.assignmentManager.getRegionsInTransition().toString(), 256));
         return false;
       }
       if (!this.serverManager.getDeadServers().isEmpty()) {
@@ -601,9 +613,9 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   }
 
   @Override
-  public boolean balance(final boolean b) {
-    boolean oldValue = this.balance;
-    this.balance = b;
+  public boolean balanceSwitch(final boolean b) {
+    boolean oldValue = this.balanceSwitch;
+    this.balanceSwitch = b;
     LOG.info("Balance=" + b);
     return oldValue;
   }

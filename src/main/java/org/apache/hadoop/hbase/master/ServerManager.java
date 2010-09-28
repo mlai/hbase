@@ -84,6 +84,7 @@ public class ServerManager {
 
   private final Server master;
   private final MasterServices services;
+  private final boolean freshClusterStartup;
 
   private final ServerMonitor serverMonitorThread;
 
@@ -119,22 +120,25 @@ public class ServerManager {
    * Constructor.
    * @param master
    * @param services
+   * @param freshClusterStartup True if we are original master on a fresh
+   * cluster startup else if false, we are joining an already running cluster.
    */
-  public ServerManager(final Server master, final MasterServices services) {
+  public ServerManager(final Server master, final MasterServices services,
+      final boolean freshClusterStartup) {
     this.master = master;
     this.services = services;
+    this.freshClusterStartup = freshClusterStartup;
     Configuration c = master.getConfiguration();
     int monitorInterval = c.getInt("hbase.master.monitor.interval", 60 * 1000);
     this.metrics = new MasterMetrics(master.getServerName());
     this.serverMonitorThread = new ServerMonitor(monitorInterval, master);
     String n = Thread.currentThread().getName();
-    Threads.setDaemonThreadRunning(this.serverMonitorThread,
-      n + ".serverMonitor");
-    this.logCleaner = new LogCleaner(c.getInt("hbase.master.cleaner.interval", 60 * 1000),
-      master, c, this.services.getMasterFileSystem().getFileSystem(),
-      this.services.getMasterFileSystem().getOldLogDir());
-    Threads.setDaemonThreadRunning(logCleaner,
-      n + ".oldLogCleaner");
+    Threads.setDaemonThreadRunning(this.serverMonitorThread, n + ".serverMonitor");
+    this.logCleaner =
+      new LogCleaner(c.getInt("hbase.master.cleaner.interval", 60 * 1000),
+        master, c, this.services.getMasterFileSystem().getFileSystem(),
+        this.services.getMasterFileSystem().getOldLogDir());
+    Threads.setDaemonThreadRunning(logCleaner, n + ".oldLogCleaner");
   }
 
   /**
@@ -250,9 +254,29 @@ public class ServerManager {
     // If we don't know this server, tell it shutdown.
     HServerInfo storedInfo = this.onlineServers.get(info.getServerName());
     if (storedInfo == null) {
-      LOG.warn("Received report from unknown server -- telling it " +
-        "to " + HMsg.Type.STOP_REGIONSERVER + ": " + info.getServerName());
-      return HMsg.STOP_REGIONSERVER_ARRAY;
+      if (!this.freshClusterStartup) {
+        // If we are joining an existing cluster, then soon as we come up we'll
+        // be getting reports from already running regionservers.
+        LOG.info("Registering new server: " + info.getServerName());
+        // recordNewServer is what happens at the end of reportServerStartup.
+        // The only thing we are skipping is passing back to the regionserver
+        // the HServerInfo to use.  Here we presume a master has already done
+        // that so we'll press on with whatever it gave us for HSI.
+        recordNewServer(info);
+        // If msgs, put off their processing but this is not enough because
+        // its possible that the next time the server reports in, we'll still
+        // not be up and serving.  For example, if a split, we'll need the
+        // regions and servers setup in the master before the below
+        // handleSplitReport will work.  TODO: FIx!!
+        if (msgs.length > 0) throw new PleaseHoldException("FIX! Putting off " +
+          "message processing because not yet rwady but possible we won't be " +
+          "ready next on next report");
+      } else {
+        LOG.warn("Received report from unknown server, a server calling " +
+          " regionServerReport w/o having first called regionServerStartup; " +
+          "telling it " + HMsg.Type.STOP_REGIONSERVER + ": " + info.getServerName());
+        return HMsg.STOP_REGIONSERVER_ARRAY;
+      }
     }
 
     // Check startcodes
@@ -261,7 +285,7 @@ public class ServerManager {
     }
 
     for (HMsg msg: msgs) {
-      LOG.info("Received " + msg);
+      LOG.info("Received " + msg + " from " + serverInfo.getServerName());
       switch (msg.getType()) {
       case REGION_SPLIT:
         this.services.getAssignmentManager().handleSplitReport(serverInfo,
@@ -503,8 +527,9 @@ public class ServerManager {
   throws NotServingRegionException {
     HRegionInterface hri = getServerConnection(server);
     if(hri == null) {
-      LOG.warn("Attempting to send CLOSE RPC to server " + server.getServerName()
-          + " failed because no RPC connection found to this server");
+      LOG.warn("Attempting to send CLOSE RPC to server " +
+        server.getServerName() + " failed because no RPC connection found " +
+        "to this server");
       return;
     }
     hri.closeRegion(region);
