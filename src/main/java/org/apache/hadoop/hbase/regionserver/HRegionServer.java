@@ -2411,7 +2411,12 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
   public CompactionRequestor getCompactionRequester() {
     return this.compactSplitThread;
   }
-  
+
+  @Override
+  public ZooKeeperWatcher getZooKeeperWatcher() {
+    return this.zooKeeper;
+  }
+
   //
   // Main program and support routines
   //

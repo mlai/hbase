@@ -25,6 +25,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
@@ -35,6 +36,7 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
+import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.util.StringUtils;
 
 import java.io.File;
@@ -254,18 +256,27 @@ public class CoprocessorHost {
     }
 
     /** @return the coprocessor environment version */
+    @Override
     public int getVersion() {
       return Coprocessor.VERSION;
     }
 
     /** @return the HBase release */
+    @Override
     public String getHBaseVersion() {
       return VersionInfo.getVersion();
     }
 
     /** @return the region */
+    @Override
     public HRegion getRegion() {
       return region;
+    }
+
+    /** @return reference to the region server services */
+    @Override
+    public RegionServerServices getRegionServerServices() {
+      return server;
     }
 
     /**
@@ -274,6 +285,7 @@ public class CoprocessorHost {
      * @return an interface for manipulating the table
      * @exception IOException Exception
      */
+    @Override
     public HTableInterface getTable(byte[] tableName) throws IOException {
       return new HTableWrapper(tableName);
     }
@@ -282,6 +294,7 @@ public class CoprocessorHost {
      * @param key the key
      * @return the value, or null if it does not exist
      */
+    @Override
     public Object get(Object key) {
       return vars.get(key);
     }
@@ -290,6 +303,7 @@ public class CoprocessorHost {
      * @param key the key
      * @param value the value
      */
+    @Override
     public void put(Object key, Object value) {
       vars.put(key, value);
     }
@@ -297,6 +311,7 @@ public class CoprocessorHost {
     /**
      * @param key the key
      */
+    @Override
     public Object remove(Object key) {
       return vars.remove(key);
     }
@@ -305,6 +320,8 @@ public class CoprocessorHost {
   static final Log LOG = LogFactory.getLog(CoprocessorHost.class);
   static final Pattern attrSpecMatch = Pattern.compile("(.+):(.+):(.+)");
 
+  /** The region server */
+  RegionServerServices server;
   /** The region */
   HRegion region;
   /** Ordered set of loaded coprocessors with lock */
@@ -314,12 +331,14 @@ public class CoprocessorHost {
 
   /**
    * Constructor
+   * @param server the regionServer
    * @param region the region
    * @param conf the configuration
    */
-  public CoprocessorHost(HRegion region, Configuration conf) {
+  public CoprocessorHost(final HRegion region, final Configuration conf, 
+      final RegionServerServices server) {
+    this.server = server;
     this.region = region;
-    
     // load system default cp's from configuration.
     load(conf);
   }
@@ -336,6 +355,7 @@ public class CoprocessorHost {
     if (defaultCPClasses == null || defaultCPClasses.length() == 0)
       return;
     StringTokenizer st = new StringTokenizer(defaultCPClasses, ",");
+    int priority = Coprocessor.Priority.SYSTEM.intValue();
     while (st.hasMoreTokens()) {
       String className = st.nextToken();
       if (findCoprocessor(className) != null) { 
@@ -345,8 +365,10 @@ public class CoprocessorHost {
       Thread.currentThread().setContextClassLoader(cl);
       try {
         implClass = cl.loadClass(className);
-        load(implClass, Coprocessor.Priority.SYSTEM);
-        LOG.info("System coprocessor " + className + " was loaded successfully.");
+        load(implClass, Coprocessor.Priority.valueOf(
+            Integer.toString(priority)));
+        LOG.info("System coprocessor " + className + " was loaded " + 
+            "successfully with priority (" + priority++ + ").");
       } catch (ClassNotFoundException e) {
         LOG.warn("Class " + className + " cannot be found. " + 
             e.getMessage());
@@ -513,6 +535,9 @@ public class CoprocessorHost {
             Coprocessor.Priority priority =
               Coprocessor.Priority.valueOf(matcher.group(3));
             load(path, className, priority);
+            LOG.info("Load coprocessor " + className + " from HTD of " +
+                Bytes.toString(region.getTableDesc().getName()) + 
+                " successfully.");
           } else {
             LOG.warn("attribute '" + key + "' has invalid coprocessor spec");
           }

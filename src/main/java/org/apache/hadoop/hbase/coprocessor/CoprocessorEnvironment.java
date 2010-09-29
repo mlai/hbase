@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.apache.hadoop.hbase.client.HTableInterface;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 
 /**
  * Coprocessor environment state.
@@ -18,6 +19,9 @@ public interface CoprocessorEnvironment {
 
   /** @return the region associated with this coprocessor */
   public HRegion getRegion();
+
+  /** @return reference to the region server services */
+  public RegionServerServices getRegionServerServices();
 
   /**
    * @return an interface for accessing the given table

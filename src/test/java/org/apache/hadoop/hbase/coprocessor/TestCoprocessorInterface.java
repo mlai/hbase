@@ -167,7 +167,14 @@ public class TestCoprocessorInterface extends HBaseTestCase {
         closedRegion.getFilesystem(), closedRegion.getConf(),
         closedRegion.getRegionInfo(), null);
     r.initialize();
-    CoprocessorHost host = r.getCoprocessorHost();
+
+    // this following piece is a hack. currently a coprocessorHost 
+    // is secretly loaded at OpenRegionHandler. we don't really
+    // start a region server here, so just manually create cphost
+    // and set it to region.
+    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    r.setCoprocessorHost(host);
+
     host.load(implClass, Priority.USER);
     // we need to manually call pre- and postOpen here since the 
     // above load() is not the real case for CP loading. A CP is
@@ -190,7 +197,11 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     HRegionInfo info = new HRegionInfo(htd, null, null, false);
     Path path = new Path(DIR + callingMethod);
     HRegion r = HRegion.createHRegion(info, path, conf);
-    CoprocessorHost host = r.getCoprocessorHost();
+    
+    // this following piece is a hack.
+    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    r.setCoprocessorHost(host);
+    
     host.load(implClass, Priority.USER);
     
     // Here we have to call pre and postOpen explicitly.

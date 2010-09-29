@@ -241,7 +241,7 @@ public class HRegion implements HeapSize { // , Writable{
       new ReadWriteConsistencyControl();
 
   // Coprocessor host
-  private final CoprocessorHost coprocessorHost;
+  private CoprocessorHost coprocessorHost;
 
   /**
    * Name of the region info file that resides just under the region directory.
@@ -313,8 +313,6 @@ public class HRegion implements HeapSize { // , Writable{
       // Write out region name as string and its encoded name.
       LOG.debug("Instantiated " + this);
     }
-
-    this.coprocessorHost = new CoprocessorHost(this, conf);
   }
 
   /**
@@ -3267,6 +3265,11 @@ public class HRegion implements HeapSize { // , Writable{
   /** @return the coprocessor host */
   public CoprocessorHost getCoprocessorHost() {
     return coprocessorHost;
+  }
+
+  /** @param coprocessorHost the new coprocessor host */
+  public void setCoprocessorHost(final CoprocessorHost coprocessorHost) {
+    this.coprocessorHost = coprocessorHost;
   }
 
   /**

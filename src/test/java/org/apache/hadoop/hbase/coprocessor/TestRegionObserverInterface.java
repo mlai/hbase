@@ -253,8 +253,13 @@ public class TestRegionObserverInterface {
     }
     HRegionInfo info = new HRegionInfo(htd, null, null, false);
     Path path = new Path(DIR + callingMethod);
+    // this following piece is a hack. currently a coprocessorHost 
+    // is secretly loaded at OpenRegionHandler. we don't really
+    // start a region server here, so just manually create cphost
+    // and set it to region.
     HRegion r = HRegion.createHRegion(info, path, conf);
-    CoprocessorHost host = r.getCoprocessorHost();
+    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    r.setCoprocessorHost(host);
     host.load(implClass, Priority.USER);
     host.preOpen();
     return r;

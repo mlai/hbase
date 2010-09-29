@@ -27,6 +27,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.executor.EventHandler;
+import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.zookeeper.ZKAssign;
@@ -105,6 +106,10 @@ public class OpenRegionHandler extends EventHandler {
               }
             }
       });
+      CoprocessorHost coprocessorHost = new CoprocessorHost(region, 
+          server.getConfiguration(), rsServices);
+      region.setCoprocessorHost(coprocessorHost);
+      coprocessorHost.postOpen();
     } catch (IOException e) {
       LOG.error("IOException instantiating region for " + regionInfo +
         "; resetting state of transition node from OPENING to OFFLINE");
