@@ -27,7 +27,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.executor.EventHandler;
-import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.RegionServerServices;
 import org.apache.hadoop.hbase.zookeeper.ZKAssign;
@@ -90,7 +89,7 @@ public class OpenRegionHandler extends EventHandler {
     try {
       // Instantiate the region.  This also periodically updates OPENING.
       region = HRegion.openHRegion(regionInfo, this.rsServices.getWAL(),
-          server.getConfiguration(), this.rsServices.getFlushRequester(),
+          server.getConfiguration(), this.rsServices,
           new Progressable() {
             public void progress() {
               try {
@@ -106,10 +105,6 @@ public class OpenRegionHandler extends EventHandler {
               }
             }
       });
-      CoprocessorHost coprocessorHost = new CoprocessorHost(region, 
-          server.getConfiguration(), rsServices);
-      region.setCoprocessorHost(coprocessorHost);
-      coprocessorHost.postOpen();
     } catch (IOException e) {
       LOG.error("IOException instantiating region for " + regionInfo +
         "; resetting state of transition node from OPENING to OFFLINE");

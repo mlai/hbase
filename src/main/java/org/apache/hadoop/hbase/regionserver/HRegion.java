@@ -36,8 +36,6 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -225,7 +223,7 @@ public class HRegion implements HeapSize { // , Writable{
 
   final long memstoreFlushSize;
   private volatile long lastFlushTime;
-  final FlushRequester flushRequester;
+  final RegionServerServices rsServices;
   private final long blockingMemStoreSize;
   final long threadWakeFrequency;
   // Used to guard closes
@@ -255,7 +253,7 @@ public class HRegion implements HeapSize { // , Writable{
     this.tableDir = null;
     this.blockingMemStoreSize = 0L;
     this.conf = null;
-    this.flushRequester = null;
+    this.rsServices = null;
     this.fs = null;
     this.memstoreFlushSize = 0L;
     this.log = null;
@@ -284,19 +282,19 @@ public class HRegion implements HeapSize { // , Writable{
    * @param conf is global configuration settings.
    * @param regionInfo - HRegionInfo that describes the region
    * is new), then read them from the supplied path.
-   * @param flushRequester an object that implements {@link FlushRequester} or null
+   * @param rsServices reference to {@link RegionServerServices} or null
    *
    * @see HRegion#newHRegion(Path, HLog, FileSystem, Configuration, org.apache.hadoop.hbase.HRegionInfo, FlushRequester)
    */
   public HRegion(Path tableDir, HLog log, FileSystem fs, Configuration conf,
-      HRegionInfo regionInfo, FlushRequester flushRequester) {
+      HRegionInfo regionInfo, RegionServerServices rsServices) {
     this.tableDir = tableDir;
     this.comparator = regionInfo.getComparator();
     this.log = log;
     this.fs = fs;
     this.conf = conf;
     this.regionInfo = regionInfo;
-    this.flushRequester = flushRequester;
+    this.rsServices = rsServices;
     this.threadWakeFrequency = conf.getLong(HConstants.THREAD_WAKE_FREQUENCY,
         10 * 1000);
     String encodedNameStr = this.regionInfo.getEncodedName();
@@ -309,6 +307,7 @@ public class HRegion implements HeapSize { // , Writable{
     this.memstoreFlushSize = flushSize;
     this.blockingMemStoreSize = this.memstoreFlushSize *
       conf.getLong("hbase.hregion.memstore.block.multiplier", 2);
+    this.coprocessorHost = new CoprocessorHost(this, rsServices, conf);
     if (LOG.isDebugEnabled()) {
       // Write out region name as string and its encoded name.
       LOG.debug("Instantiated " + this);
@@ -1756,7 +1755,7 @@ public class HRegion implements HeapSize { // , Writable{
   }
 
   private void requestFlush() {
-    if (this.flushRequester == null) {
+    if (this.rsServices == null) {
       return;
     }
     synchronized (writestate) {
@@ -1766,7 +1765,7 @@ public class HRegion implements HeapSize { // , Writable{
       writestate.flushRequested = true;
     }
     // Make request outside of synchronize block; HBASE-818.
-    this.flushRequester.requestFlush(this);
+    this.rsServices.getFlushRequester().requestFlush(this);
     if (LOG.isDebugEnabled()) {
       LOG.debug("Flush requested on " + this);
     }
@@ -2420,13 +2419,12 @@ public class HRegion implements HeapSize { // , Writable{
    * @param conf is global configuration settings.
    * @param regionInfo - HRegionInfo that describes the region
    * is new), then read them from the supplied path.
-   * @param flushListener an object that implements CacheFlushListener or null
-   * making progress to master -- otherwise master might think region deploy
-   * failed.  Can be null.
+   * @param rsServices 
    * @return the new instance
    */
-  public static HRegion newHRegion(Path tableDir, HLog log, FileSystem fs, Configuration conf,
-                                   HRegionInfo regionInfo, FlushRequester flushListener) {
+  public static HRegion newHRegion(Path tableDir, HLog log, FileSystem fs,
+      Configuration conf, HRegionInfo regionInfo,
+      RegionServerServices rsServices) {
     try {
       @SuppressWarnings("unchecked")
       Class<? extends HRegion> regionClass =
@@ -2434,9 +2432,9 @@ public class HRegion implements HeapSize { // , Writable{
 
       Constructor<? extends HRegion> c =
           regionClass.getConstructor(Path.class, HLog.class, FileSystem.class,
-              Configuration.class, HRegionInfo.class, FlushRequester.class);
+              Configuration.class, HRegionInfo.class, RegionServerServices.class);
 
-      return c.newInstance(tableDir, log, fs, conf, regionInfo, flushListener);
+      return c.newInstance(tableDir, log, fs, conf, regionInfo, rsServices);
     } catch (Throwable e) {
       // todo: what should I throw here?
       throw new IllegalStateException("Could not instantiate a region instance.", e);
@@ -2506,7 +2504,7 @@ public class HRegion implements HeapSize { // , Writable{
    * @throws IOException
    */
   public static HRegion openHRegion(final HRegionInfo info, final HLog wal,
-    final Configuration conf, final FlushRequester flusher,
+    final Configuration conf, final RegionServerServices rsServices,
     final Progressable reporter)
   throws IOException {
     if (LOG.isDebugEnabled()) {
@@ -2518,7 +2516,7 @@ public class HRegion implements HeapSize { // , Writable{
     Path dir = HTableDescriptor.getTableDir(FSUtils.getRootDir(conf),
       info.getTableDesc().getName());
     HRegion r = HRegion.newHRegion(dir, wal, FileSystem.get(conf), conf, info,
-      flusher);
+      rsServices);
     return r.openHRegion(reporter);
   }
 

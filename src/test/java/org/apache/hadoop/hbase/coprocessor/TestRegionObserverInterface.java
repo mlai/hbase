@@ -258,7 +258,7 @@ public class TestRegionObserverInterface {
     // start a region server here, so just manually create cphost
     // and set it to region.
     HRegion r = HRegion.createHRegion(info, path, conf);
-    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    CoprocessorHost host = new CoprocessorHost(r, null, conf);
     r.setCoprocessorHost(host);
     host.load(implClass, Priority.USER);
     return r;

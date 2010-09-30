@@ -216,11 +216,11 @@ public class SplitTransaction {
     // stuff in fs that needs cleanup -- a storefile or two.  Thats why we
     // add entry to journal BEFORE rather than AFTER the change.
     this.journal.add(JournalEntry.STARTED_REGION_A_CREATION);
-    HRegion a = createDaughterRegion(this.hri_a, this.parent.flushRequester);
+    HRegion a = createDaughterRegion(this.hri_a, this.parent.rsServices);
 
     // Ditto
     this.journal.add(JournalEntry.STARTED_REGION_B_CREATION);
-    HRegion b = createDaughterRegion(this.hri_b, this.parent.flushRequester);
+    HRegion b = createDaughterRegion(this.hri_b, this.parent.rsServices);
 
     // Edit parent in meta
     if (!testing) {
@@ -399,7 +399,7 @@ public class SplitTransaction {
    * @see #cleanupDaughterRegion(FileSystem, Path, HRegionInfo)
    */
   HRegion createDaughterRegion(final HRegionInfo hri,
-      final FlushRequester flusher)
+      final RegionServerServices rsServices)
   throws IOException {
     // Package private so unit tests have access.
     FileSystem fs = this.parent.getFilesystem();
@@ -407,7 +407,7 @@ public class SplitTransaction {
       this.splitdir, hri);
     HRegion r = HRegion.newHRegion(this.parent.getTableDir(),
       this.parent.getLog(), fs, this.parent.getConf(),
-      hri, flusher);
+      hri, rsServices);
     HRegion.moveInitialFilesIntoPlace(fs, regionDir, r.getRegionDir());
     return r;
   }

@@ -172,7 +172,7 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     // is secretly loaded at OpenRegionHandler. we don't really
     // start a region server here, so just manually create cphost
     // and set it to region.
-    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    CoprocessorHost host = new CoprocessorHost(r, null, conf);
     r.setCoprocessorHost(host);
 
     host.load(implClass, Priority.USER);
@@ -199,7 +199,7 @@ public class TestCoprocessorInterface extends HBaseTestCase {
     HRegion r = HRegion.createHRegion(info, path, conf);
     
     // this following piece is a hack.
-    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    CoprocessorHost host = new CoprocessorHost(r, null, conf);
     r.setCoprocessorHost(host);
     
     host.load(implClass, Priority.USER);

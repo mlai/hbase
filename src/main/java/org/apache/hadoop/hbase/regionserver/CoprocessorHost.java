@@ -276,7 +276,7 @@ public class CoprocessorHost {
     /** @return reference to the region server services */
     @Override
     public RegionServerServices getRegionServerServices() {
-      return server;
+      return rsServices;
     }
 
     /**
@@ -320,8 +320,8 @@ public class CoprocessorHost {
   static final Log LOG = LogFactory.getLog(CoprocessorHost.class);
   static final Pattern attrSpecMatch = Pattern.compile("(.+):(.+):(.+)");
 
-  /** The region server */
-  RegionServerServices server;
+  /** The region server services */
+  RegionServerServices rsServices;
   /** The region */
   HRegion region;
   /** Ordered set of loaded coprocessors with lock */
@@ -335,22 +335,23 @@ public class CoprocessorHost {
    * @param region the region
    * @param conf the configuration
    */
-  public CoprocessorHost(final HRegion region, final Configuration conf, 
-      final RegionServerServices server) {
-    this.server = server;
+  public CoprocessorHost(final HRegion region,
+      final RegionServerServices rsServices, final Configuration conf) {
+    this.rsServices = rsServices;
     this.region = region;
+
     // load system default cp's from configuration.
-    load(conf);
+    loadSystemCoprocessors(conf);
     
     // load Coprocessor From HDFS
-    loadCoprocessorFromHDFS();
+    loadTableCoprocessors();
   }
   
   /**
    * Load system coprocessors. Read the class names from configuration.
    * Called by constructor.
    */
-  private void load(Configuration conf) {
+  private void loadSystemCoprocessors(Configuration conf) {
     Class<?> implClass = null;
 
     // load default coprocessors from configure file
@@ -517,7 +518,7 @@ public class CoprocessorHost {
     }
   }
 
-  void loadCoprocessorFromHDFS () {
+  void loadTableCoprocessors () {
     // scan the table attributes for coprocessor load specifications
     // initialize the coprocessors
     for (Map.Entry<ImmutableBytesWritable,ImmutableBytesWritable> e:
@@ -551,7 +552,7 @@ public class CoprocessorHost {
    * @exception CoprocessorException Exception
    */
   public void preOpen() throws CoprocessorException {
-    loadCoprocessorFromHDFS();
+    loadTableCoprocessors();
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
