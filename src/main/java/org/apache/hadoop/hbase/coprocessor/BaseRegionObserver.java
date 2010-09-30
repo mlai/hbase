@@ -30,51 +30,42 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
 /**
  * An abstract class that implements Coprocessor and RegionObserver. 
  * By extending it, you can create you own region observer without 
- * overriding all abstract methods of Coprocessor and 
- * RegionObserver.
+ * overriding all abstract methods of Coprocessor and RegionObserver.
  */
 public abstract class BaseRegionObserver implements Coprocessor,
     RegionObserver {
 
   @Override
-  public void preOpen(CoprocessorEnvironment e) 
-    throws CoprocessorException { }
+  public void preOpen(CoprocessorEnvironment e) { }
 
   @Override
-  public void postOpen(CoprocessorEnvironment e) 
-    throws CoprocessorException { }
+  public void postOpen(CoprocessorEnvironment e) { }
 
   @Override
   public void preClose(CoprocessorEnvironment e, boolean abortRequested)
-    throws CoprocessorException { }
+    { }
 
   @Override
   public void postClose(CoprocessorEnvironment e, boolean abortRequested)
-    throws CoprocessorException { }
+    { }
 
   @Override
-  public void preFlush(CoprocessorEnvironment e) 
-    throws CoprocessorException { }
+  public void preFlush(CoprocessorEnvironment e) { }
 
   @Override
-  public void postFlush(CoprocessorEnvironment e) 
-    throws CoprocessorException { }
+  public void postFlush(CoprocessorEnvironment e) { }
 
   @Override
-  public void preSplit(CoprocessorEnvironment e)
-    throws CoprocessorException { }
+  public void preSplit(CoprocessorEnvironment e) { }
 
   @Override
-  public void postSplit(CoprocessorEnvironment e, HRegion l, HRegion r)
-    throws CoprocessorException { }
+  public void postSplit(CoprocessorEnvironment e, HRegion l, HRegion r) { }
 
   @Override
-  public void preCompact(CoprocessorEnvironment e, boolean willSplit)
-    throws CoprocessorException { }
+  public void preCompact(CoprocessorEnvironment e, boolean willSplit) { }
 
   @Override
-  public void postCompact(CoprocessorEnvironment e, boolean willSplit)
-    throws CoprocessorException { }
+  public void postCompact(CoprocessorEnvironment e, boolean willSplit) { }
 
   @Override
   public Result preGetClosestRowBefore(CoprocessorEnvironment e, byte[] row,

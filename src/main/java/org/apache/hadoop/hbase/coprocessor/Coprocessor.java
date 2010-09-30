@@ -16,7 +16,6 @@
 
 package org.apache.hadoop.hbase.coprocessor;
 
-import org.apache.hadoop.hbase.client.HTableInterface;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 
 /**
@@ -59,73 +58,51 @@ public interface Coprocessor {
   /**
    * Called before the region is reported as open to the master.
    * @param e the environment provided by the region server
-   * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void preOpen(final CoprocessorEnvironment e)
-  throws CoprocessorException;
+  public void preOpen(final CoprocessorEnvironment e);
   
   /**
    * Called after the region is reported as open to the master.
    * @param e the environment provided by the region server
-   * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void postOpen(final CoprocessorEnvironment e)
-  throws CoprocessorException;
+  public void postOpen(final CoprocessorEnvironment e);
 
   /**
    * Called before the memstore is flushed to disk.
    * @param e the environment provided by the region server
-   * @throws CoprocessorException if an error occurred on the coprocessor.
-   * Throw this exception to indicate an error. However it won't break 
-   * the chain of coprocessors execution.
    */
-  public void preFlush(final CoprocessorEnvironment e)
-  throws CoprocessorException;
+  public void preFlush(final CoprocessorEnvironment e);
   
   /**
    * Called after the memstore is flushed to disk.
    * @param e the environment provided by the region server
-   * @throws CoprocessorException if an error occurred on the coprocessor.
-   * Throw this exception to indicate an error. However it won't break 
-   * the chain of coprocessors execution.
    */
-  public void postFlush(final CoprocessorEnvironment e)
-  throws CoprocessorException;
+  public void postFlush(final CoprocessorEnvironment e);
 
   /**
    * Called before compaction.
    * @param e the environment provided by the region server
    * @param willSplit true if compaction will result in a split, false
    * otherwise
-   * @throws CoprocessorException if an error occurred on the coprocessor.
-   * Throw this exception to indicate an error. However it won't break 
-   * the chain of coprocessors execution.
    */
   public void preCompact(final CoprocessorEnvironment e, 
-      final boolean willSplit) throws CoprocessorException;
+    final boolean willSplit);
 
   /**
    * Called after compaction.
    * @param e the environment provided by the region server
    * @param willSplit true if compaction will result in a split, false
    * otherwise
-   * @throws CoprocessorException if an error occurred on the coprocessor.
-   * Throw this exception to indicate an error. However it won't break 
-   * the chain of coprocessors execution.
    */
   public void postCompact(final CoprocessorEnvironment e, 
-      final boolean willSplit) throws CoprocessorException;
+    final boolean willSplit);
 
   /**
    * Called before the region is split.
    * @param e the environment provided by the region server
    * (e.getRegion() returns the parent region)
-   * @throws CoprocessorException if an error occurred on the coprocessor.
-   * Throw this exception to indicate an error. However it won't break 
-   * the chain of coprocessors execution.
    */
-  public void preSplit(final CoprocessorEnvironment e)
-  throws CoprocessorException;
+  public void preSplit(final CoprocessorEnvironment e);
 
   /**
    * Called after the region is split.
@@ -133,29 +110,21 @@ public interface Coprocessor {
    * (e.getRegion() returns the parent region)
    * @param l the left daughter region
    * @param r the right daughter region
-   * @throws CoprocessorException if an error occurred on the coprocessor.
-   * Throw this exception to indicate an error. However it won't break 
-   * the chain of coprocessors execution.
    */
   public void postSplit(final CoprocessorEnvironment e, final HRegion l, 
-      final HRegion r)
-  throws CoprocessorException;
+    final HRegion r);
 
   /**
    * Called before the region is reported as closed to the master.
    * @param e the environment provided by the region server
    * @param abortRequested true if the region server is aborting
-   * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void preClose(final CoprocessorEnvironment e, boolean abortRequested)
-  throws CoprocessorException;
+  public void preClose(final CoprocessorEnvironment e, boolean abortRequested);
 
   /**
    * Called after the region is reported as closed to the master.
    * @param e the environment provided by the region server
    * @param abortRequested true if the region server is aborting
-   * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public void postClose(final CoprocessorEnvironment e, boolean abortRequested)
-  throws CoprocessorException;
+  public void postClose(final CoprocessorEnvironment e, boolean abortRequested);
 }

@@ -547,9 +547,8 @@ public class CoprocessorHost {
   }
   /**
    * Invoked before a region open
-   * @exception CoprocessorException Exception
    */
-  public void preOpen() throws CoprocessorException {
+  public void preOpen() {
     loadTableCoprocessors();
     try {
       coprocessorLock.readLock().lock();
@@ -622,11 +621,7 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.preCompact(env, willSplit);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.preCompact(env, willSplit);
       }
     } catch (OutOfMemoryError e) {
       throw e;
@@ -645,11 +640,7 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.postCompact(env, willSplit);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.postCompact(env, willSplit);
       }
     } catch (OutOfMemoryError e) {
       throw e;
@@ -666,11 +657,7 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.preFlush(env);
-        }  catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.preFlush(env);
       }
     } catch (OutOfMemoryError e) {
       throw e;
@@ -687,11 +674,7 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.postFlush(env);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.postFlush(env);
       }      
     } catch (OutOfMemoryError e) {
       throw e;
@@ -708,11 +691,7 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.preSplit(env);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.preSplit(env);
       }
     } catch (OutOfMemoryError e) {
       throw e;
@@ -732,11 +711,7 @@ public class CoprocessorHost {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.postSplit(env, l, r);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.postSplit(env, l, r);
       }
     } catch (OutOfMemoryError e) {
       throw e;
