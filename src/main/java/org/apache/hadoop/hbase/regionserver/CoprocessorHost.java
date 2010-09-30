@@ -25,7 +25,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
-import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
@@ -36,7 +35,6 @@ import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.hadoop.hbase.ipc.CoprocessorProtocol;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.VersionInfo;
-import org.apache.hadoop.hbase.zookeeper.ZooKeeperWatcher;
 import org.apache.hadoop.util.StringUtils;
 
 import java.io.File;
@@ -995,6 +993,142 @@ public class CoprocessorHost {
     } finally {
       coprocessorLock.readLock().unlock();
     }
+  }
+
+  /**
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param put data to put if check succeeds
+   * @throws IOException e
+   */
+  public void preCheckAndPut(final byte [] row, final byte [] family, 
+      final byte [] qualifier, final byte [] value, final Put put)
+    throws CoprocessorException
+  {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          ((RegionObserver)env.impl).preCheckAndPut(env, row, family,
+            qualifier, value, put);
+        }
+      }
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param put data to put if check succeeds
+   * @throws IOException e
+   */
+  public boolean postCheckAndPut(final byte [] row, final byte [] family, 
+      final byte [] qualifier, final byte [] value, final Put put,
+      boolean result)
+    throws CoprocessorException
+  {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          result = ((RegionObserver)env.impl).postCheckAndPut(env, row,
+            family, qualifier, value, put, result);
+        }
+      }
+      return result;
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param delete delete to commit if check succeeds
+   * @throws IOException e
+   */
+  public void preCheckAndDelete(final byte [] row, final byte [] family, 
+      final byte [] qualifier, final byte [] value, final Delete delete)
+    throws CoprocessorException
+  {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          ((RegionObserver)env.impl).preCheckAndDelete(env, row, family,
+            qualifier, value, delete);
+        }
+      }
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param delete delete to commit if check succeeds
+   * @throws IOException e
+   */
+  public boolean postCheckAndDelete(final byte [] row, final byte [] family,
+      final byte [] qualifier, final byte [] value, final Delete delete,
+      boolean result)
+    throws CoprocessorException
+  {
+    try {
+      coprocessorLock.readLock().lock();
+      for (Environment env: coprocessors) {
+        if (env.impl instanceof RegionObserver) {
+          result = ((RegionObserver)env.impl).postCheckAndDelete(env, row,
+            family, qualifier, value, delete, result);
+        }
+      }
+      return result;
+    } finally {
+      coprocessorLock.readLock().unlock();
+    }
+  }
+
+  /**
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param amount long amount to increment
+   * @param writeToWAL whether to write the increment to the WAL
+   * @return new amount to increment
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public long preIncrementColumnValue(final byte [] row, final byte [] family,
+      final byte [] qualifier, final long amount, final boolean writeToWAL)
+      throws CoprocessorException {
+    return amount;
+  }
+
+  /**
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param amount long amount to increment
+   * @param writeToWAL whether to write the increment to the WAL
+   * @param result the result returned by incrementColumnValue
+   * @return the result to return to the client
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public long postIncrementColumnValue(final byte [] row, final byte [] family,
+      final byte [] qualifier, final long amount, final boolean writeToWAL,
+      final long result)
+      throws CoprocessorException {
+    return result;
   }
 
   /**

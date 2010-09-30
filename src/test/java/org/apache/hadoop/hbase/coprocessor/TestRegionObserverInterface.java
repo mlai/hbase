@@ -193,31 +193,37 @@ public class TestRegionObserverInterface {
       hadPostGetClosestRowBefore = true;
       return result;
     }
+    
     @Override
     public void preScannerOpen(CoprocessorEnvironment e, Scan scan) {
       // not tested -- need to go through the RS to get here
     }
+
     @Override
     public void postScannerOpen(CoprocessorEnvironment e, Scan scan, long scannerId) {
       // not tested -- need to go through the RS to get here
     }
+
     @Override
     public List<KeyValue> preScannerNext(final CoprocessorEnvironment e,
         final long scannerId, List<KeyValue> results) {
       // not tested -- need to go through the RS to get here
       return results;
     }
+
     @Override
     public List<KeyValue> postScannerNext(final CoprocessorEnvironment e,
         final long scannerId, List<KeyValue> results) {
       // not tested -- need to go through the RS to get here
       return results;
     }
+
     @Override
     public void preScannerClose(final CoprocessorEnvironment e, 
         final long scannerId) {
       // not tested -- need to go through the RS to get here
     }
+
     @Override
     public void postScannerClose(final CoprocessorEnvironment e, 
         final long scannerId) {
@@ -227,6 +233,7 @@ public class TestRegionObserverInterface {
     boolean hadPreGet() {
       return hadPreGet;
     }
+
     boolean hadPostGet() {
       return hadPostGet;
     }
@@ -238,7 +245,7 @@ public class TestRegionObserverInterface {
     boolean hadPostPut() {
       return hadPostPut;
     }
-    
+
     boolean hadDelete() {
       return !beforeDelete;
     }

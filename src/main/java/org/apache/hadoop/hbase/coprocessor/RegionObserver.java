@@ -20,7 +20,9 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.hadoop.hbase.KeyValue;
+import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
@@ -40,8 +42,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public Result preGetClosestRowBefore(final CoprocessorEnvironment e,
-    final byte [] row, final byte [] family, final Result result)
-  throws CoprocessorException;
+      final byte [] row, final byte [] family, final Result result)
+    throws CoprocessorException;
   
   /**
    * Called after a client makes a GetClosestRowBefore request.
@@ -53,8 +55,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public Result postGetClosestRowBefore(final CoprocessorEnvironment e,
-    final byte [] row, final byte [] family, final Result result)
-  throws CoprocessorException;
+      final byte [] row, final byte [] family, final Result result)
+    throws CoprocessorException;
 
   /**
    * Called before the client perform a get()
@@ -66,7 +68,8 @@ public interface RegionObserver {
    */
   public List<KeyValue> preGet(final CoprocessorEnvironment e, final Get get,
       final List<KeyValue> results)
-  throws CoprocessorException;
+    throws CoprocessorException;
+
   /**
    * Called after the client perform a get()
    * @param e the environment provided by the region server
@@ -76,8 +79,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public List<KeyValue> postGet(final CoprocessorEnvironment e, final Get get,
-    final List<KeyValue> results)
-  throws CoprocessorException;
+      final List<KeyValue> results)
+    throws CoprocessorException;
   
   /**
    * Called before the client tests for existence using a Get.
@@ -88,8 +91,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public boolean preExists(final CoprocessorEnvironment e, final Get get,
-    final boolean exists)
-  throws CoprocessorException;
+      final boolean exists)
+    throws CoprocessorException;
   
   /**
    * Called after the client tests for existence using a Get.
@@ -100,8 +103,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public boolean postExists(final CoprocessorEnvironment e, final Get get,
-    final boolean exists)
-  throws CoprocessorException;
+      final boolean exists)
+    throws CoprocessorException;
 
   /**
    * Called before the client stores a value.
@@ -111,8 +114,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public Map<byte[], List<KeyValue>> prePut(final CoprocessorEnvironment e,
-    final Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException;
+      final Map<byte[], List<KeyValue>> familyMap)
+    throws CoprocessorException;
 
   /**
    * Called after the client stores a value.
@@ -122,8 +125,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public Map<byte[], List<KeyValue>> postPut(final CoprocessorEnvironment e,
-    final Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException;
+      final Map<byte[], List<KeyValue>> familyMap)
+    throws CoprocessorException;
   
   /**
    * Called before the client stores a value.
@@ -133,7 +136,7 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public KeyValue prePut(final CoprocessorEnvironment e, final KeyValue kv)
-  throws CoprocessorException;
+    throws CoprocessorException;
   
   /**
    * Called before the client stores a value.
@@ -143,7 +146,7 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public KeyValue postPut(final CoprocessorEnvironment e, final KeyValue kv)
-  throws CoprocessorException;
+    throws CoprocessorException;
 
   /**
    * Called before the client deletes a value.
@@ -153,8 +156,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public Map<byte[], List<KeyValue>> preDelete(final CoprocessorEnvironment e,
-    final Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException;
+      final Map<byte[], List<KeyValue>> familyMap)
+    throws CoprocessorException;
 
   /**
    * Called after the client deletes a value.
@@ -164,8 +167,103 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public Map<byte[], List<KeyValue>> postDelete(final CoprocessorEnvironment e,
-    final Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException;
+      final Map<byte[], List<KeyValue>> familyMap)
+    throws CoprocessorException;
+
+  /**
+   * Called before checkAndPut
+   * @param e the environment provided by the region server
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param put data to put if check succeeds
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void preCheckAndPut(final CoprocessorEnvironment e, 
+      final byte [] row, final byte [] family, final byte [] qualifier,
+      final byte [] value, final Put put)
+    throws CoprocessorException;
+
+  /**
+   * Called after checkAndPut
+   * @param e the environment provided by the region server
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param put data to put if check succeeds
+   * @param result true if the new put was executed, false otherwise
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public boolean postCheckAndPut(final CoprocessorEnvironment e, 
+      final byte [] row, final byte [] family, final byte [] qualifier,
+      final byte [] value, final Put put, final boolean result)
+    throws CoprocessorException;
+
+  /**
+   * Called before checkAndPut
+   * @param e the environment provided by the region server
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param delete delete to commit if check succeeds
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public void preCheckAndDelete(final CoprocessorEnvironment e, 
+      final byte [] row, final byte [] family, final byte [] qualifier,
+      final byte [] value, final Delete delete)
+    throws CoprocessorException;
+
+  /**
+   * Called after checkAndDelete
+   * @param e the environment provided by the region server
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param value the expected value
+   * @param delete delete to commit if check succeeds
+   * @param result true if the new put was executed, false otherwise
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public boolean postCheckAndDelete(final CoprocessorEnvironment e, 
+      final byte [] row, final byte [] family, final byte [] qualifier,
+      final byte [] value, final Delete delete, final boolean result)
+    throws CoprocessorException;
+
+  /**
+   * Called before incrementColumnValue
+   * @param e the environment provided by the region server
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param amount long amount to increment
+   * @param writeToWAL whether to write the increment to the WAL
+   * @return new amount to increment
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public long preIncrementColumnValue(final CoprocessorEnvironment e,
+      final byte [] row, final byte [] family, final byte [] qualifier,
+      final long amount, final boolean writeToWAL)
+    throws CoprocessorException;
+
+  /**
+   * Called after incrementColumnValue
+   * @param e the environment provided by the region server
+   * @param row row to check
+   * @param family column family
+   * @param qualifier column qualifier
+   * @param amount long amount to increment
+   * @param writeToWAL whether to write the increment to the WAL
+   * @param result the result returned by incrementColumnValue
+   * @return the result to return to the client
+   * @throws CoprocessorException if an error occurred on the coprocessor
+   */
+  public long postIncrementColumnValue(final CoprocessorEnvironment e,
+      final byte [] row, final byte [] family, final byte [] qualifier,
+      final long amount, final boolean writeToWAL, long result)
+    throws CoprocessorException;
 
   /**
    * Called before the client opens a new scanner.
@@ -174,8 +272,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public void preScannerOpen(final CoprocessorEnvironment e, final Scan scan)
-  throws CoprocessorException;
-  
+    throws CoprocessorException;
+
   /**
    * Called after the client opens a new scanner.
    * @param e the environment provided by the region server
@@ -184,8 +282,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public void postScannerOpen(final CoprocessorEnvironment e, final Scan scan,
-    final long scannerId)
-  throws CoprocessorException;
+      final long scannerId)
+    throws CoprocessorException;
 
   /**
    * Called before the client asks for the next row on a scanner.
@@ -196,8 +294,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public List<KeyValue> preScannerNext(final CoprocessorEnvironment e,
-    final long scannerId, final List<KeyValue> results)
-  throws CoprocessorException;
+      final long scannerId, final List<KeyValue> results)
+    throws CoprocessorException;
   
   /**
    * Called after the client asks for the next row on a scanner.
@@ -208,8 +306,8 @@ public interface RegionObserver {
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
   public List<KeyValue> postScannerNext(final CoprocessorEnvironment e,
-    final long scannerId, final List<KeyValue> results)
-  throws CoprocessorException;
+      final long scannerId, final List<KeyValue> results)
+    throws CoprocessorException;
 
   /**
    * Called before the client closes a scanner.
@@ -219,7 +317,7 @@ public interface RegionObserver {
    */
   public void preScannerClose(final CoprocessorEnvironment e,
       final long scannerId)
-  throws CoprocessorException;
+    throws CoprocessorException;
   
   /**
    * Called after the client closes a scanner.
@@ -229,5 +327,5 @@ public interface RegionObserver {
    */
   public void postScannerClose(final CoprocessorEnvironment e,
       final long scannerId)
-  throws CoprocessorException;
+    throws CoprocessorException;
 }

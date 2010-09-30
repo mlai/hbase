@@ -61,7 +61,6 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
-import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.client.Delete;
 import org.apache.hadoop.hbase.client.Get;
@@ -1188,10 +1187,11 @@ public class HRegion implements HeapSize { // , Writable{
     byte [] byteNow = Bytes.toBytes(now);
     boolean flush = false;
     
-    updatesLock.readLock().lock();
     if (coprocessorHost != null) {
       familyMap = coprocessorHost.preDelete(familyMap);
     }
+
+    updatesLock.readLock().lock();
     try {
       
       for (Map.Entry<byte[], List<KeyValue>> e : familyMap.entrySet()) {
@@ -1257,12 +1257,12 @@ public class HRegion implements HeapSize { // , Writable{
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
-      if (coprocessorHost != null) {
-        familyMap = coprocessorHost.postDelete(familyMap);
-      }
     } finally {
       this.updatesLock.readLock().unlock();
     }    
+    if (coprocessorHost != null) {
+      familyMap = coprocessorHost.postDelete(familyMap);
+    }
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
       requestFlush();
@@ -1658,13 +1658,13 @@ public class HRegion implements HeapSize { // , Writable{
    */
   private void put(Map<byte [], List<KeyValue>> familyMap,
     boolean writeToWAL) throws IOException {
-    long now = EnvironmentEdgeManager.currentTimeMillis();
-    byte[] byteNow = Bytes.toBytes(now);
-    boolean flush = false;
-
     if (coprocessorHost != null) {
       familyMap = coprocessorHost.prePut(familyMap);
     }
+
+    long now = EnvironmentEdgeManager.currentTimeMillis();
+    byte[] byteNow = Bytes.toBytes(now);
+    boolean flush = false;
 
     this.updatesLock.readLock().lock();
     try {
@@ -1685,11 +1685,11 @@ public class HRegion implements HeapSize { // , Writable{
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
-      if (coprocessorHost != null) {
-        familyMap = coprocessorHost.postPut(familyMap);
-      }
     } finally {
       this.updatesLock.readLock().unlock();
+    }
+    if (coprocessorHost != null) {
+      familyMap = coprocessorHost.postPut(familyMap);
     }
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
@@ -2274,14 +2274,17 @@ public class HRegion implements HeapSize { // , Writable{
         ReadWriteConsistencyControl.setThreadReadPoint(this.readPt);
 
         results.clear();
+
         if (coprocessorHost != null) {
           results = coprocessorHost.preScannerNext(hashCode(), results);
         }
+
         boolean returnResult = nextInternal(limit);
 
         if (coprocessorHost != null) {
           results = coprocessorHost.postScannerNext(hashCode(), results);
         }
+
         outResults.addAll(results);
         resetFilters();
         if (isFilterDone()) {
@@ -2980,7 +2983,8 @@ public class HRegion implements HeapSize { // , Writable{
         Get get = new Get(row);
         get.addColumn(family, qualifier);
 
-        // we don't want to invoke xxGet coprocessor in this case(?)
+        // we don't want to invoke coprocessor in this case; ICV is wrapped
+        // in HRegionServer
         List<KeyValue> results = get(get, false);
 
         if (!results.isEmpty()) {
@@ -2994,10 +2998,6 @@ public class HRegion implements HeapSize { // , Writable{
         KeyValue newKv = new KeyValue(row, family,
             qualifier, EnvironmentEdgeManager.currentTimeMillis(),
             Bytes.toBytes(result));
-        // pre-put hook
-        if (coprocessorHost != null) {
-          newKv = coprocessorHost.prePut(newKv);
-        }
 
         // now log it:
         if (writeToWAL) {
@@ -3015,9 +3015,6 @@ public class HRegion implements HeapSize { // , Writable{
 
         size = this.memstoreSize.addAndGet(size);
         flush = isFlushSize(size);
-        if (coprocessorHost != null) {
-          newKv = coprocessorHost.postPut(newKv);
-        }
       } finally {
         releaseRowLock(lid);
       }
