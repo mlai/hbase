@@ -137,7 +137,7 @@ public class TestCommandTarget {
     Map<byte[], Integer> results;
 
     // scan: for all regions
-    scan = new Scan(ROWS[rowSeperator1 - 3], ROWS[rowSeperator2  + 2]);
+    scan = new Scan(ROWS[rowSeperator1 - 1], ROWS[rowSeperator2  + 1]);
     results = table.exec(ColumnAggregationProtocol.class, scan,
         new Batch.Call<ColumnAggregationProtocol,Integer>() {
           public Integer call(ColumnAggregationProtocol instance) throws IOException{
@@ -157,7 +157,7 @@ public class TestCommandTarget {
     results.clear(); 
     
     // scan: for region 2 and region 3
-    scan = new Scan(ROWS[rowSeperator1 + 1], ROWS[rowSeperator2  + 2]);
+    scan = new Scan(ROWS[rowSeperator1 + 1], ROWS[rowSeperator2  + 1]);
     results = table.exec(ColumnAggregationProtocol.class, scan,
         new Batch.Call<ColumnAggregationProtocol,Integer>() {
           public Integer call(ColumnAggregationProtocol instance) throws IOException{
