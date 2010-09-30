@@ -119,6 +119,8 @@ public class ServerManager {
    * Constructor.
    * @param master
    * @param services
+   * @param freshClusterStartup True if we are original master on a fresh
+   * cluster startup else if false, we are joining an already running cluster.
    */
   public ServerManager(final Server master, final MasterServices services) {
     this.master = master;
@@ -128,13 +130,12 @@ public class ServerManager {
     this.metrics = new MasterMetrics(master.getServerName());
     this.serverMonitorThread = new ServerMonitor(monitorInterval, master);
     String n = Thread.currentThread().getName();
-    Threads.setDaemonThreadRunning(this.serverMonitorThread,
-      n + ".serverMonitor");
-    this.logCleaner = new LogCleaner(c.getInt("hbase.master.cleaner.interval", 60 * 1000),
-      master, c, this.services.getMasterFileSystem().getFileSystem(),
-      this.services.getMasterFileSystem().getOldLogDir());
-    Threads.setDaemonThreadRunning(logCleaner,
-      n + ".oldLogCleaner");
+    Threads.setDaemonThreadRunning(this.serverMonitorThread, n + ".serverMonitor");
+    this.logCleaner =
+      new LogCleaner(c.getInt("hbase.master.cleaner.interval", 60 * 1000),
+        master, c, this.services.getMasterFileSystem().getFileSystem(),
+        this.services.getMasterFileSystem().getOldLogDir());
+    Threads.setDaemonThreadRunning(logCleaner, n + ".oldLogCleaner");
   }
 
   /**
@@ -166,8 +167,7 @@ public class ServerManager {
       throw new PleaseHoldException(message);
     }
     checkIsDead(info.getServerName(), "STARTUP");
-    LOG.info("Received start message from: " + info.getServerName());
-    recordNewServer(info);
+    recordNewServer(info, false, null);
   }
 
   private HServerInfo haveServerWithSameHostAndPortAlready(final String hostnamePort) {
@@ -197,26 +197,24 @@ public class ServerManager {
   }
 
   /**
-   * Adds the HSI to the RS list and creates an empty load
-   * @param info The region server informations
-   */
-  public void recordNewServer(HServerInfo info) {
-    recordNewServer(info, false, null);
-  }
-
-  /**
    * Adds the HSI to the RS list
    * @param info The region server informations
-   * @param useInfoLoad True if the load from the info should be used
-   *                    like under a master failover
+   * @param useInfoLoad True if the load from the info should be used; e.g.
+   * under a master failover
+   * @param hri Region interface.  Can be null.
    */
   void recordNewServer(HServerInfo info, boolean useInfoLoad,
       HRegionInterface hri) {
-    HServerLoad load = useInfoLoad ? info.getLoad() : new HServerLoad();
+    HServerLoad load = useInfoLoad? info.getLoad(): new HServerLoad();
     String serverName = info.getServerName();
+    LOG.info("Registering server=" + serverName + ", regionCount=" +
+      load.getLoad() + ", userLoad=" + useInfoLoad);
     info.setLoad(load);
     // TODO: Why did we update the RS location ourself?  Shouldn't RS do this?
     // masterStatus.getZooKeeper().updateRSLocationGetWatch(info, watcher);
+    // -- If I understand the question, the RS does not update the location
+    // because could be disagreement over locations because of DNS issues; only
+    // master does DNS now -- St.Ack 20100929.
     this.onlineServers.put(serverName, info);
     if (hri == null) {
       serverConnections.remove(serverName);
@@ -250,9 +248,25 @@ public class ServerManager {
     // If we don't know this server, tell it shutdown.
     HServerInfo storedInfo = this.onlineServers.get(info.getServerName());
     if (storedInfo == null) {
-      LOG.warn("Received report from unknown server -- telling it " +
-        "to " + HMsg.Type.STOP_REGIONSERVER + ": " + info.getServerName());
-      return HMsg.STOP_REGIONSERVER_ARRAY;
+      if (this.deadservers.contains(storedInfo)) {
+        LOG.warn("Report from deadserver " + storedInfo);
+        return HMsg.STOP_REGIONSERVER_ARRAY;
+      } else {
+        // Just let the server in.  Presume master joining a running cluster.
+        // recordNewServer is what happens at the end of reportServerStartup.
+        // The only thing we are skipping is passing back to the regionserver
+        // the HServerInfo to use.  Here we presume a master has already done
+        // that so we'll press on with whatever it gave us for HSI.
+        recordNewServer(info, true, null);
+        // If msgs, put off their processing but this is not enough because
+        // its possible that the next time the server reports in, we'll still
+        // not be up and serving.  For example, if a split, we'll need the
+        // regions and servers setup in the master before the below
+        // handleSplitReport will work.  TODO: FIx!!
+        if (msgs.length > 0) throw new PleaseHoldException("FIX! Putting off " +
+          "message processing because not yet rwady but possible we won't be " +
+          "ready next on next report");
+      }
     }
 
     // Check startcodes
@@ -261,7 +275,7 @@ public class ServerManager {
     }
 
     for (HMsg msg: msgs) {
-      LOG.info("Received " + msg);
+      LOG.info("Received " + msg + " from " + serverInfo.getServerName());
       switch (msg.getType()) {
       case REGION_SPLIT:
         this.services.getAssignmentManager().handleSplitReport(serverInfo,
@@ -450,7 +464,10 @@ public class ServerManager {
           " but server shutdown is already in progress");
       return;
     }
-    // Remove the server from the known servers lists and update load info
+    // Remove the server from the known servers lists and update load info BUT
+    // add to deadservers first; do this so it'll show in dead servers list if
+    // not in online servers list.
+    this.deadservers.add(serverName);
     this.onlineServers.remove(serverName);
     this.serverConnections.remove(serverName);
     // If cluster is going down, yes, servers are going to be expiring; don't
@@ -464,7 +481,7 @@ public class ServerManager {
       return;
     }
     this.services.getExecutorService().submit(new ServerShutdownHandler(this.master,
-        this.services, deadservers, info));
+        this.services, this.deadservers, info));
     LOG.debug("Added=" + serverName +
       " to dead servers, submitted shutdown handler to be executed");
   }
@@ -503,8 +520,9 @@ public class ServerManager {
   throws NotServingRegionException {
     HRegionInterface hri = getServerConnection(server);
     if(hri == null) {
-      LOG.warn("Attempting to send CLOSE RPC to server " + server.getServerName()
-          + " failed because no RPC connection found to this server");
+      LOG.warn("Attempting to send CLOSE RPC to server " +
+        server.getServerName() + " failed because no RPC connection found " +
+        "to this server");
       return;
     }
     hri.closeRegion(region);
@@ -529,9 +547,10 @@ public class ServerManager {
 
   /**
    * Waits for the regionservers to report in.
+   * @return Count of regions out on cluster
    * @throws InterruptedException 
    */
-  public void waitForRegionServers()
+  public int waitForRegionServers()
   throws InterruptedException {
     long interval = this.master.getConfiguration().
       getLong("hbase.master.wait.on.regionservers.interval", 3000);
@@ -549,8 +568,20 @@ public class ServerManager {
       }
       oldcount = count;
     }
+    // Count how many regions deployed out on cluster.  If fresh start, it'll
+    // be none but if not a fresh start, we'll have registered servers when
+    // they came in on the {@link #regionServerReport(HServerInfo)} as opposed to
+    // {@link #regionServerStartup(HServerInfo)} and it'll be carrying an
+    // actual server load.
+    int regionCount = 0;
+    for (Map.Entry<String, HServerInfo> e: this.onlineServers.entrySet()) {
+      HServerLoad load = e.getValue().getLoad();
+      if (load != null) regionCount += load.getLoad();
+    }
     LOG.info("Exiting wait on regionserver(s) to checkin; count=" + count +
-      ", stopped=" + this.master.isStopped());
+      ", stopped=" + this.master.isStopped() +
+      ", count of regions out on cluster=" + regionCount);
+    return regionCount;
   }
 
   public List<HServerInfo> getOnlineServersList() {

@@ -57,13 +57,20 @@ import org.apache.hadoop.hbase.DroppedSnapshotException;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HConstants;
+import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.NotServingRegionException;
 import org.apache.hadoop.hbase.UnknownScannerException;
-import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
-import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.Exec;
+import org.apache.hadoop.hbase.client.ExecResult;
+import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.RowLock;
+import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.filter.IncompatibleFilterException;
 import org.apache.hadoop.hbase.io.HeapSize;
@@ -375,7 +382,9 @@ public class HRegion implements HeapSize { // , Writable{
     final Path initialFiles, final Path regiondir)
   throws IOException {
     if (initialFiles != null && fs.exists(initialFiles)) {
-      fs.rename(initialFiles, regiondir);
+      if (!fs.rename(initialFiles, regiondir)) {
+        LOG.warn("Unable to rename " + initialFiles + " to " + regiondir);
+      }
     }
   }
 
@@ -2443,7 +2452,7 @@ public class HRegion implements HeapSize { // , Writable{
    * @return Returns <code>this</code>
    * @throws IOException
    */
-  HRegion openHRegion(final Progressable reporter)
+  protected HRegion openHRegion(final Progressable reporter)
   throws IOException {
     long seqid = initialize(reporter);
     if (this.log != null) {
@@ -2478,22 +2487,6 @@ public class HRegion implements HeapSize { // , Writable{
     } finally {
       meta.releaseRowLock(lid);
     }
-  }
-
-  /**
-   * Delete a region's meta information from the passed
-   * <code>meta</code> region.  Deletes the row.
-   * @param srvr META server to be updated
-   * @param metaRegionName Meta region name
-   * @param regionName HRegion to remove from <code>meta</code>
-   *
-   * @throws IOException
-   */
-  public static void removeRegionFromMETA(final HRegionInterface srvr,
-    final byte [] metaRegionName, final byte [] regionName)
-  throws IOException {
-    Delete delete = new Delete(regionName);
-    srvr.delete(metaRegionName, delete);
   }
 
   /**
@@ -3146,6 +3139,13 @@ public class HRegion implements HeapSize { // , Writable{
     boolean old = this.splitRequest;
     this.splitRequest = b;
     return old;
+  }
+
+  /**
+   * Give the region a chance to prepare before it is split.
+   */
+  protected void prepareToSplit() {
+    // nothing
   }
 
   /**

@@ -39,6 +39,7 @@ import org.apache.hadoop.hbase.Server;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.regionserver.Store;
 import org.apache.hadoop.hbase.regionserver.wal.HLog;
+import org.apache.hadoop.hbase.regionserver.wal.HLogSplitter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.util.FSUtils;
 
@@ -80,6 +81,7 @@ public class MasterFileSystem {
     this.fs = FileSystem.get(conf);
     // set up the archived logs path
     this.oldLogDir = new Path(this.rootdir, HConstants.HREGION_OLDLOGDIR_NAME);
+    createInitialFileSystemLayout();
   }
 
   /**
@@ -90,8 +92,9 @@ public class MasterFileSystem {
    * </li>
    * <li>Create a log archive directory for RS to put archived logs</li>
    * </ol>
+   * Idempotent.
    */
-  public void initialize() throws IOException {
+  private void createInitialFileSystemLayout() throws IOException {
     // check if the root directory exists
     checkRootDir(this.rootdir, conf, this.fs);
 
@@ -180,7 +183,8 @@ public class MasterFileSystem {
     this.splitLogLock.lock();
     Path logDir = new Path(this.rootdir, HLog.getHLogDirectoryName(serverName));
     try {
-      HLog.splitLog(this.rootdir, logDir, oldLogDir, this.fs, conf);
+      HLogSplitter splitter = HLogSplitter.createLogSplitter(conf);
+      splitter.splitLog(this.rootdir, logDir, oldLogDir, this.fs, conf);
     } catch (IOException e) {
       LOG.error("Failed splitting " + logDir.toString(), e);
     } finally {

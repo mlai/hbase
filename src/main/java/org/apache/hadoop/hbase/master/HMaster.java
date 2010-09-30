@@ -146,10 +146,6 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   // Cluster status zk tracker and local setter
   private ClusterStatusTracker clusterStatusTracker;
 
-  // True if this a cluster startup where there are no already running servers
-  // as opposed to a master joining an already running cluster
-  boolean freshClusterStartup;
-
   // This flag is for stopping this Master instance.  Its set when we are
   // stopping or aborting
   private volatile boolean stopped = false;
@@ -160,16 +156,18 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   ExecutorService executorService;
 
   private LoadBalancer balancer = new LoadBalancer();
-  private Chore balancerChore;
-  private volatile boolean balance = true;
+  private Thread balancerChore;
+  // If 'true', the balancer is 'on'.  If 'false', the balancer will not run.
+  private volatile boolean balanceSwitch = true;
+
+  private Thread catalogJanitorChore;
 
   /**
    * Initializes the HMaster. The steps are as follows:
    *
    * <ol>
    * <li>Initialize HMaster RPC and address
-   * <li>Connect to ZooKeeper and figure out if this is a fresh cluster start or
-   *     a failed over master
+   * <li>Connect to ZooKeeper.  Get count of regionservers still up.
    * <li>Block until becoming active master
    * <li>Initialize master components - server manager, region manager,
    *     region server queue, file system manager, etc
@@ -207,7 +205,12 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     this.zooKeeper = new ZooKeeperWatcher(conf, MASTER, this);
 
     /*
-     * 2. Block on becoming the active master.
+     * 2. Count of regoinservers that are up.
+     */
+    int count = ZKUtil.getNumberOfChildren(zooKeeper, zooKeeper.rsZNode);
+
+    /*
+     * 3. Block on becoming the active master.
      * We race with other masters to write our address into ZooKeeper.  If we
      * succeed, we are the primary/active master and finish initialization.
      *
@@ -219,16 +222,6 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     this.zooKeeper.registerListener(activeMasterManager);
     stallIfBackupMaster(this.conf, this.activeMasterManager);
     activeMasterManager.blockUntilBecomingActiveMaster();
-
-    /*
-     * 3. Determine if this is a fresh cluster startup or failed over master.
-     * This is done by checking for the existence of any ephemeral
-     * RegionServer nodes in ZooKeeper.  These nodes are created by RSs on
-     * their initialization but initialization will not happen unless clusterup
-     * flag is set -- see ClusterStatusTracker below.
-     */
-    this.freshClusterStartup =
-      0 == ZKUtil.getNumberOfChildren(zooKeeper, zooKeeper.rsZNode);
 
     /*
      * 4. We are active master now... go initialize components we need to run.
@@ -257,16 +250,20 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     // Set the cluster as up.  If new RSs, they'll be waiting on this before
     // going ahead with their startup.
     this.clusterStatusTracker = new ClusterStatusTracker(getZooKeeper(), this);
-    this.clusterStatusTracker.setClusterUp();
+    boolean wasUp = this.clusterStatusTracker.isClusterUp();
+    if (!wasUp) this.clusterStatusTracker.setClusterUp();
     this.clusterStatusTracker.start();
 
     LOG.info("Server active/primary master; " + this.address +
-      "; freshClusterStart=" + this.freshClusterStartup + ", sessionid=0x" +
-      Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()));
+      ", sessionid=0x" +
+      Long.toHexString(this.zooKeeper.getZooKeeper().getSessionId()) +
+      ", ephemeral nodes still up in zk=" + count +
+      ", cluster-up flag was=" + wasUp);
   }
 
   /*
-   * Stall startup if we are designated a backup master.
+   * Stall startup if we are designated a backup master; i.e. we want someone
+   * else to become the master before proceeding.
    * @param c
    * @param amm
    * @throws InterruptedException
@@ -288,31 +285,50 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
 
   /**
    * Main processing loop for the HMaster.
-   * 1. Handle both fresh cluster start as well as failed over initialization of
-   *    the HMaster.
-   * 2. Start the necessary services
-   * 3. Reassign the root region
-   * 4. The master is no longer closed - set "closed" to false
+   * <ol>
+   * <li>Handle both fresh cluster start as well as failed over initialization of
+   *    the HMaster</li>
+   * <li>Start the necessary services</li>
+   * <li>Reassign the root region</li>
+   * <li>The master is no longer closed - set "closed" to false</li>
+   * </ol>
    */
   @Override
   public void run() {
     try {
       // start up all service threads.
       startServiceThreads();
-      // Wait for minimum number of region servers to report in
-      this.serverManager.waitForRegionServers();
 
-      // Start assignment of user regions, startup or failure
-      if (!this.stopped) {
-        if (this.freshClusterStartup) {
-          clusterStarterInitializations(this.fileSystemManager,
-            this.serverManager, this.catalogTracker, this.assignmentManager);
-        } else {
-          // Process existing unassigned nodes in ZK, read all regions from META,
-          // rebuild in-memory state.
-          this.assignmentManager.processFailover();
-        }
+      // Wait for region servers to report in.  Returns count of regions.
+      int regionCount = this.serverManager.waitForRegionServers();
+
+      // TODO: Should do this in background rather than block master startup
+      // TODO: Do we want to do this before/while/after RSs check in?
+      // It seems that this method looks at active RSs but happens concurrently
+      // with when we expect them to be checking in
+      this.fileSystemManager.
+        splitLogAfterStartup(this.serverManager.getOnlineServers());
+
+      // Make sure root and meta assigned before proceeding.
+      assignRootAndMeta();
+
+      // Is this fresh start with no regions assigned or are we a master joining
+      // an already-running cluster?  If regionsCount == 0, then for sure a
+      // fresh start.  TOOD: Be fancier.  If regionsCount == 2, perhaps the
+      // 2 are .META. and -ROOT- and we should fall into the fresh startup
+      // branch below.  For now, do processFailover.
+      if (regionCount == 0) {
+        this.assignmentManager.cleanoutUnassigned();
+        this.assignmentManager.assignAllUserRegions();
+      } else {
+        this.assignmentManager.processFailover();
       }
+
+      // Start balancer and meta catalog janitor after meta and regions have
+      // been assigned.
+      this.balancerChore = getAndStartBalancerChore(this);
+      this.catalogJanitorChore =
+        Threads.setDaemonThreadRunning(new CatalogJanitor(this, this));
 
       // Check if we should stop every second.
       Sleeper sleeper = new Sleeper(1000, this);
@@ -320,61 +336,59 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     } catch (Throwable t) {
       abort("Unhandled exception. Starting shutdown.", t);
     }
+    // Stop balancer and meta catalog janitor
+    if (this.balancerChore != null) this.balancerChore.interrupt();
+    if (this.catalogJanitorChore != null) this.catalogJanitorChore.interrupt();
 
     // Wait for all the remaining region servers to report in IFF we were
     // running a cluster shutdown AND we were NOT aborting.
     if (!this.abort && this.serverManager.isClusterShutdown()) {
       this.serverManager.letRegionServersShutdown();
     }
-
-    // Clean up and close up shop
-    if (this.infoServer != null) {
-      LOG.info("Stopping infoServer");
-      try {
-        this.infoServer.stop();
-      } catch (Exception ex) {
-        ex.printStackTrace();
-      }
-    }
-    this.rpcServer.stop();
-    if (this.balancerChore != null) this.balancerChore.interrupt();
+    stopServiceThreads();
+    // Stop services started up in the constructor.
     this.activeMasterManager.stop();
-    this.executorService.shutdown();
     HConnectionManager.deleteConnection(this.conf, true);
     this.zooKeeper.close();
     LOG.info("HMaster main thread exiting");
   }
 
-  /*
-   * Initializations we need to do if we are cluster starter.
-   * @param mfs
-   * @param sm
-   * @param ct
-   * @param am
+  /**
+   * Check <code>-ROOT-</code> and <code>.META.</code> are assigned.  If not,
+   * assign them.
+   * @throws InterruptedException
    * @throws IOException
+   * @throws KeeperException
+   * @return Count of regions we assigned.
    */
-  private static void clusterStarterInitializations(final MasterFileSystem mfs,
-    final ServerManager sm, final CatalogTracker ct, final AssignmentManager am)
-  throws IOException, InterruptedException, KeeperException {
-      // Check filesystem has required basics
-      mfs.initialize();
-      // TODO: Should do this in background rather than block master startup
-      // TODO: Do we want to do this before/while/after RSs check in?
-      //       It seems that this method looks at active RSs but happens
-      //       concurrently with when we expect them to be checking in
-      mfs.splitLogAfterStartup(sm.getOnlineServers());
-      // Clean out current state of unassigned
-      am.cleanoutUnassigned();
-      // assign the root region
-      am.assignRoot();
-      ct.waitForRoot();
-      // assign the meta region
-      am.assignMeta();
-      ct.waitForMeta();
-      // above check waits for general meta availability but this does not
+  int assignRootAndMeta()
+  throws InterruptedException, IOException, KeeperException {
+    int assigned = 0;
+    long timeout = this.conf.getLong("hbase.catalog.verification.timeout", 1000);
+
+    // Work on ROOT region.  Is it in zk in transition?
+    boolean rit = this.assignmentManager.
+      processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.ROOT_REGIONINFO);
+    if (!catalogTracker.verifyRootRegionLocation(timeout)) {
+      this.assignmentManager.assignRoot();
+      this.catalogTracker.waitForRoot();
+      assigned++;
+    }
+    LOG.info("-ROOT- assigned=" + assigned + ", rit=" + rit);
+ 
+    // Work on meta region
+    rit = this.assignmentManager.
+      processRegionInTransitionAndBlockUntilAssigned(HRegionInfo.FIRST_META_REGIONINFO);
+    if (!this.catalogTracker.verifyMetaRegionLocation(timeout)) {
+      this.assignmentManager.assignMeta();
+      this.catalogTracker.waitForMeta();
+      // Above check waits for general meta availability but this does not
       // guarantee that the transition has completed
-      am.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
-      am.assignAllUserRegions();
+      this.assignmentManager.waitForAssignment(HRegionInfo.FIRST_META_REGIONINFO);
+      assigned++;
+    }
+    LOG.info(".META. assigned=" + assigned + ", rit=" + rit);
+    return assigned;
   }
 
   /*
@@ -444,9 +458,9 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     try {
       // Start the executor service pools
       this.executorService.startExecutorService(ExecutorType.MASTER_OPEN_REGION,
-        conf.getInt("hbase.master.executor.openregion.threads", 5));
+        conf.getInt("hbase.master.executor.openregion.threads", 10));
       this.executorService.startExecutorService(ExecutorType.MASTER_CLOSE_REGION,
-        conf.getInt("hbase.master.executor.closeregion.threads", 5));
+        conf.getInt("hbase.master.executor.closeregion.threads", 10));
       this.executorService.startExecutorService(ExecutorType.MASTER_SERVER_OPERATIONS,
         conf.getInt("hbase.master.executor.serverops.threads", 5));
       this.executorService.startExecutorService(ExecutorType.MASTER_TABLE_OPERATIONS,
@@ -460,7 +474,6 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
         this.infoServer.setAttribute(MASTER, this);
         this.infoServer.start();
       }
-      this.balancerChore = getAndStartBalancerChore(this);
 
       // Start the server last so everything else is running before we start
       // receiving requests.
@@ -481,10 +494,26 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     }
   }
 
-  private static Chore getAndStartBalancerChore(final HMaster master) {
-    String name = master.getServerName() + "-balancerChore";
-    int period = master.getConfiguration().
-      getInt("hbase.master.balancer.period", 3000000);
+  private void stopServiceThreads() {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Stopping service threads");
+    }
+    this.rpcServer.stop();
+    // Clean up and close up shop
+    if (this.infoServer != null) {
+      LOG.info("Stopping infoServer");
+      try {
+        this.infoServer.stop();
+      } catch (Exception ex) {
+        ex.printStackTrace();
+      }
+    }
+    this.executorService.shutdown();
+  }
+
+  private static Thread getAndStartBalancerChore(final HMaster master) {
+    String name = master.getServerName() + "-BalancerChore";
+    int period = master.getConfiguration().getInt("hbase.balancer.period", 300000);
     // Start up the load balancer chore
     Chore chore = new Chore(name, period, master) {
       @Override
@@ -492,8 +521,7 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
         master.balance();
       }
     };
-    Threads.setDaemonThreadRunning(chore, name);
-    return chore;
+    return Threads.setDaemonThreadRunning(chore);
   }
 
   public MapWritable regionServerStartup(final HServerInfo serverInfo)
@@ -553,19 +581,18 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
     return !isStopped();
   }
 
-  /**
-   * Run the balancer.
-   * @return True if balancer ran, false otherwise.
-   */
+  @Override
   public boolean balance() {
     // If balance not true, don't run balancer.
-    if (!this.balance) return false;
+    if (!this.balanceSwitch) return false;
     synchronized (this.balancer) {
       // Only allow one balance run at at time.
       if (this.assignmentManager.isRegionsInTransition()) {
-        LOG.debug("Not running balancer because regions in transition: " +
+        LOG.debug("Not running balancer because " +
+          this.assignmentManager.getRegionsInTransition().size() +
+          " region(s) in transition: " +
           org.apache.commons.lang.StringUtils.
-            abbreviate(this.assignmentManager.getRegionsInTransition().toString(), 64));
+            abbreviate(this.assignmentManager.getRegionsInTransition().toString(), 256));
         return false;
       }
       if (!this.serverManager.getDeadServers().isEmpty()) {
@@ -593,9 +620,9 @@ implements HMasterInterface, HMasterRegionInterface, MasterServices, Server {
   }
 
   @Override
-  public boolean balance(final boolean b) {
-    boolean oldValue = this.balance;
-    this.balance = b;
+  public boolean balanceSwitch(final boolean b) {
+    boolean oldValue = this.balanceSwitch;
+    this.balanceSwitch = b;
     LOG.info("Balance=" + b);
     return oldValue;
   }

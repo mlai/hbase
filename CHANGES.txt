@@ -30,6 +30,9 @@ Release 0.21.0 - Unreleased
    HBASE-2692  Master rewrite and cleanup for 0.90
                (Karthik Ranganathan, Jon Gray & Stack)
    HBASE-2961  Close zookeeper when done with it (HCM, Master, and RS)
+   HBASE-2641  HBASE-2641 Refactor HLog splitLog, hbase-2437 continued;
+               break out split code as new classes
+               (James Kennedy via Stack)
                
 
   BUG FIXES
@@ -536,6 +539,26 @@ Release 0.21.0 - Unreleased
    HBASE-3024  NPE processing server crash in MetaEditor.addDaughter
    HBASE-3026  Fixup of "missing" daughters on split is too aggressive
    HBASE-3003  ClassSize constants dont use 'final'
+   HBASE-3002  Fix zookeepers.sh to work properly with strange JVM options
+   HBASE-3028  No basescanner means no GC'ing of split, offlined parent regions
+   HBASE-2989  [replication] RSM won't cleanup after locking if 0 peers
+   HBASE-2992  [replication] MalformedObjectNameException in ReplicationMetrics
+   HBASE-3037  When new master joins running cluster does "Received report from
+               unknown server -- telling it to STOP_REGIONSERVER.
+   HBASE-3039  Stuck in regionsInTransition because rebalance came in at same
+               time as a split
+   HBASE-3042  Use LO4J in SequenceFileLogReader
+               (Nicolas Spiegelberg via Stack)
+   HBASE-2995  Incorrect dependency on Log class from Jetty
+   HBASE-3038  WALReaderFSDataInputStream.getPos() fails if Filesize > MAX_INT
+               (Nicolas Spiegelberg via Stack)
+   HBASE-3047  If new master crashes, restart is messy
+   HBASE-3054  Remore TestEmptyMetaInfo; it doesn't make sense any more.
+   HBASE-3056  Fix ordering in ZKWatcher constructor to prevent weird race
+               condition
+   HBASE-3057  Race condition when closing regions that causes flakiness in
+               TestRestartCluster
+   HBASE-3058  Fix REST tests on trunk
 
   IMPROVEMENTS
    HBASE-1760  Cleanup TODOs in HTable
@@ -928,6 +951,13 @@ Release 0.21.0 - Unreleased
    HBASE-3017  More log pruning
    HBASE-3022  Change format of enum messages in o.a.h.h.executor package
    HBASE-3001  Ship dependency jars to the cluster for all jobs
+   HBASE-3033  [replication] ReplicationSink.replicateEntries improvements
+   HBASE-3040  BlockIndex readIndex too slowly in heavy write scenario
+               (Andy Chen via Stack)
+   HBASE-3030  The return code of many filesystem operations are not checked
+               (dhruba borthakur via Stack)
+   HBASE-2646  Compaction requests should be prioritized to prevent blocking
+               (Jeff Whiting via Stack)
 
   NEW FEATURES
    HBASE-1961  HBase EC2 scripts
