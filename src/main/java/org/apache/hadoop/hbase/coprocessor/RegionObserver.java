@@ -86,12 +86,9 @@ public interface RegionObserver {
    * Called before the client tests for existence using a Get.
    * @param e the environment provided by the region server
    * @param get the Get request
-   * @param exists the result returned by the region server
-   * @return the result to return to the client
    * @throws CoprocessorException if an error occurred on the coprocessor
    */
-  public boolean preExists(final CoprocessorEnvironment e, final Get get,
-      final boolean exists)
+  public void preExists(final CoprocessorEnvironment e, final Get get)
     throws CoprocessorException;
   
   /**
@@ -128,26 +125,6 @@ public interface RegionObserver {
       final Map<byte[], List<KeyValue>> familyMap)
     throws CoprocessorException;
   
-  /**
-   * Called before the client stores a value.
-   * @param e the environment provided by the region server
-   * @param kv a KeyValue to store
-   * @return the possibly transformed KeyValue to actually use
-   * @throws CoprocessorException if an error occurred on the coprocessor
-   */
-  public KeyValue prePut(final CoprocessorEnvironment e, final KeyValue kv)
-    throws CoprocessorException;
-  
-  /**
-   * Called before the client stores a value.
-   * @param e the environment provided by the region server
-   * @param kv a KeyValue to store
-   * @return the possibly transformed KeyValue to actually use
-   * @throws CoprocessorException if an error occurred on the coprocessor
-   */
-  public KeyValue postPut(final CoprocessorEnvironment e, final KeyValue kv)
-    throws CoprocessorException;
-
   /**
    * Called before the client deletes a value.
    * @param e the environment provided by the region server

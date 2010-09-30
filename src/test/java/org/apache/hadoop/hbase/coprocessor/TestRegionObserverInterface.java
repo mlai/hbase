@@ -154,16 +154,6 @@ public class TestRegionObserverInterface {
     }
 
     @Override
-    public KeyValue prePut(CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
-    
-    @Override
-    public KeyValue postPut(CoprocessorEnvironment e, KeyValue kv) {
-      return kv;
-    }
-
-    @Override
     public Map<byte[], List<KeyValue>> preDelete(CoprocessorEnvironment e,
         Map<byte[], List<KeyValue>> familyMap) {
       LOG.info("preDelete: delete=" + familyMap);

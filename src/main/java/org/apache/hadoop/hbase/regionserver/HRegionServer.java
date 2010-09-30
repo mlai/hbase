@@ -46,8 +46,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import com.google.common.collect.ClassToInstanceMap;
-import com.google.common.collect.MutableClassToInstanceMap;
 import com.google.common.base.Function;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -1501,8 +1499,15 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     requestCount.incrementAndGet();
     try {
       HRegion region = getRegion(regionName);
+      if (region.getCoprocessorHost() != null) {
+        region.getCoprocessorHost().preExists(get);
+      }
       Result r = region.get(get, getLockFromId(get.getLockId()));
-      return r != null && !r.isEmpty();
+      boolean result = r != null && !r.isEmpty();
+      if (region.getCoprocessorHost() != null) {
+        result = region.getCoprocessorHost().postExists(get, result);
+      }
+      return result;
     } catch (Throwable t) {
       throw convertThrowableToIOE(cleanup(t));
     }
