@@ -95,6 +95,12 @@ public class TestRegionObserverStacking extends TestCase {
     HRegionInfo info = new HRegionInfo(htd, null, null, false);
     Path path = new Path(DIR + callingMethod);
     HRegion r = HRegion.createHRegion(info, path, conf);
+    // this following piece is a hack. currently a coprocessorHost 
+    // is secretly loaded at OpenRegionHandler. we don't really
+    // start a region server here, so just manually create cphost
+    // and set it to region.
+    CoprocessorHost host = new CoprocessorHost(r, conf, null);
+    r.setCoprocessorHost(host);
     return r;
   }
 

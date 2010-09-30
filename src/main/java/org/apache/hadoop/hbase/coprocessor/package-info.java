@@ -19,6 +19,7 @@
  */
 
 /**
+
 <h2>Table of Contents</h2>
 <ul>
 <li><a href="#overview">Overview</a></li>
@@ -74,7 +75,7 @@ The region server is opening a region to bring it online. Coprocessors
 can piggyback or fail this process.
 <p>
 <ul>
-  <li>preOpen, postOpen: Called before and after the region is reported as
+  <li>postOpen: Called after the region is reported as
  online to the master.</li><p>
 </ul>
 <p>
@@ -288,15 +289,20 @@ default coprocessors. The classes must be included in the classpath already.
     &lt;name&gt;hbase.coprocessor.default.classes&lt;/name&gt;
     &lt;value&gt;org.apache.hadoop.hbase.coprocessor.RBACCoprocessor, org.apache.hadoop.hbase.coprocessor.ColumnAggregationProtocol&lt;/value&gt;
     &lt;description&gt;A comma-separated list of Coprocessors that are loaded by
-    default. For any override coprocessor method, these classes will be called 
+    default. For any override coprocessor method from RegionObservor or 
+    Coprocessor, these classes' implementation will be called 
     in order. After implement your own
     Coprocessor, just put it in HBase's classpath and add the fully
     qualified class name here. 
-    A coprocessor can also be loaded on demand by setting HTableDescriptor.
     &lt;/description&gt;
-  &lt;/property&gt;
+  &lt;/property&gt; 
 </pre></blockquote>
 </div>
+<p>
+The first defined coprocessor will be assigned 
+<code>Coprocessor.Priority.SYSTEM</code> as priority. And each following 
+coprocessor's priority will be incremented by one. Coprocessors are executed 
+in order according to the natural ordering of the int. 
 
 <h3>Load jar from file system</h3>
 A coprocessor class can also be loaded from a jar file. The class
@@ -340,6 +346,5 @@ policy implementations, perhaps) ahead of observers.
   admin.createTable(htd);
 </pre></blockquote>
 </div>
-
 */
 package org.apache.hadoop.hbase.coprocessor;

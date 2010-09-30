@@ -75,7 +75,9 @@ public interface Coprocessor {
   /**
    * Called before the memstore is flushed to disk.
    * @param e the environment provided by the region server
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor.
+   * Throw this exception to indicate an error. However it won't break 
+   * the chain of coprocessors execution.
    */
   public void preFlush(final CoprocessorEnvironment e)
   throws CoprocessorException;
@@ -83,7 +85,9 @@ public interface Coprocessor {
   /**
    * Called after the memstore is flushed to disk.
    * @param e the environment provided by the region server
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor.
+   * Throw this exception to indicate an error. However it won't break 
+   * the chain of coprocessors execution.
    */
   public void postFlush(final CoprocessorEnvironment e)
   throws CoprocessorException;
@@ -93,7 +97,9 @@ public interface Coprocessor {
    * @param e the environment provided by the region server
    * @param willSplit true if compaction will result in a split, false
    * otherwise
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor.
+   * Throw this exception to indicate an error. However it won't break 
+   * the chain of coprocessors execution.
    */
   public void preCompact(final CoprocessorEnvironment e, 
       final boolean willSplit) throws CoprocessorException;
@@ -103,7 +109,9 @@ public interface Coprocessor {
    * @param e the environment provided by the region server
    * @param willSplit true if compaction will result in a split, false
    * otherwise
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor.
+   * Throw this exception to indicate an error. However it won't break 
+   * the chain of coprocessors execution.
    */
   public void postCompact(final CoprocessorEnvironment e, 
       final boolean willSplit) throws CoprocessorException;
@@ -112,7 +120,9 @@ public interface Coprocessor {
    * Called before the region is split.
    * @param e the environment provided by the region server
    * (e.getRegion() returns the parent region)
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor.
+   * Throw this exception to indicate an error. However it won't break 
+   * the chain of coprocessors execution.
    */
   public void preSplit(final CoprocessorEnvironment e)
   throws CoprocessorException;
@@ -123,9 +133,12 @@ public interface Coprocessor {
    * (e.getRegion() returns the parent region)
    * @param l the left daughter region
    * @param r the right daughter region
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws CoprocessorException if an error occurred on the coprocessor.
+   * Throw this exception to indicate an error. However it won't break 
+   * the chain of coprocessors execution.
    */
-  public void postSplit(final CoprocessorEnvironment e, final HRegion l, final HRegion r)
+  public void postSplit(final CoprocessorEnvironment e, final HRegion l, 
+      final HRegion r)
   throws CoprocessorException;
 
   /**

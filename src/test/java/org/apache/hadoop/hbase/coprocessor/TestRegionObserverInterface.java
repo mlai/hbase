@@ -261,7 +261,6 @@ public class TestRegionObserverInterface {
     CoprocessorHost host = new CoprocessorHost(r, conf, null);
     r.setCoprocessorHost(host);
     host.load(implClass, Priority.USER);
-    host.preOpen();
     return r;
   }
 

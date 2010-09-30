@@ -33,6 +33,7 @@ import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.regionserver.HRegion;
 import org.apache.hadoop.hbase.util.Base64;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
+import org.apache.hadoop.hbase.regionserver.CoprocessorHost;
 
 public class TestClassloading extends HBaseClusterTestCase {
   static final Log LOG = LogFactory.getLog(TestClassloading.class);
@@ -99,7 +100,8 @@ public class TestClassloading extends HBaseClusterTestCase {
     MiniHBaseCluster hbase = this.cluster;
     for (HRegion region: hbase.getRegionServer(0).getOnlineRegionsLocalContext()) {
       if (region.getRegionNameAsString().startsWith(getClass().getName())) {
-        Coprocessor c = region.getCoprocessorHost().findCoprocessor(className);
+        CoprocessorHost host = region.getCoprocessorHost();
+        Coprocessor c = host.findCoprocessor(className);
         found = (c != null);
       }
     }

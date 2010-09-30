@@ -770,10 +770,10 @@ public class HRegion implements HeapSize { // , Writable{
           writestate.notifyAll();
         }
       }
-    } finally {
       if (coprocessorHost != null) {
         coprocessorHost.postCompact(splitRow != null);
       }
+    } finally {
       lock.readLock().unlock();
     }
     return splitRow;
@@ -828,10 +828,11 @@ public class HRegion implements HeapSize { // , Writable{
             return false;
           }
         }
+        boolean result = internalFlushcache();
         if (coprocessorHost != null) {
           coprocessorHost.postFlush();
         }
-        return internalFlushcache();
+        return result;
       } finally {
         synchronized (writestate) {
           writestate.flushing = false;
@@ -1158,6 +1159,7 @@ public class HRegion implements HeapSize { // , Writable{
   public void delete(Delete delete, Integer lockid, boolean writeToWAL)
   throws IOException {
     checkReadOnly();
+    checkResources();
     Integer lid = null;
     startRegionOperation();
     try {
@@ -1255,10 +1257,11 @@ public class HRegion implements HeapSize { // , Writable{
       // Now make changes to the memstore.
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
-    } finally {
+
       if (coprocessorHost != null) {
         familyMap = coprocessorHost.postDelete(familyMap);
       }
+    } finally {
       this.updatesLock.readLock().unlock();
     }    
     if (flush) {
@@ -1682,11 +1685,12 @@ public class HRegion implements HeapSize { // , Writable{
 
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
+
+      if (coprocessorHost != null) {
+        familyMap = coprocessorHost.postPut(familyMap);
+      }
     } finally {
       this.updatesLock.readLock().unlock();
-    }
-    if (coprocessorHost != null) {
-      familyMap = coprocessorHost.postPut(familyMap);
     }
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
@@ -2915,10 +2919,10 @@ public class HRegion implements HeapSize { // , Writable{
 
   /*
    * Do a get based on the get parameter.
-   * @param withCoprocssor invoke coprocessor or not. We don't want to 
+   * @param withCoprocessor invoke coprocessor or not. We don't want to 
    * always invoke cp for this private method. 
    */
-  private List<KeyValue> get(final Get get, boolean withCoprocssor) 
+  private List<KeyValue> get(final Get get, boolean withCoprocessor) 
   throws IOException {
     Scan scan = new Scan(get);
 
@@ -2926,7 +2930,7 @@ public class HRegion implements HeapSize { // , Writable{
     List<KeyValue> getResults = new ArrayList<KeyValue>();
 
     // pre-get CP hook
-    if ((coprocessorHost != null) && withCoprocssor) {
+    if ((coprocessorHost != null) && withCoprocessor) {
       results = coprocessorHost.preGet(get, results);
     }
     InternalScanner scanner = null;
@@ -2945,7 +2949,7 @@ public class HRegion implements HeapSize { // , Writable{
       results = getResults; 
     }
     // post-get CP hook
-    if ((coprocessorHost != null) && withCoprocssor) {
+    if ((coprocessorHost != null) && withCoprocessor) {
       results = coprocessorHost.postGet(get, results);
     }
     return results;
