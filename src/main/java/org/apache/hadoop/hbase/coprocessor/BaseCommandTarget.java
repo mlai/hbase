@@ -27,10 +27,10 @@ import org.apache.hadoop.hbase.regionserver.HRegion;
  * Extend this class and implement related CoprocessorProtocol
  * to implement actually class running at region server.
  */
-public abstract class BaseCommandTarget 
-implements Coprocessor, CoprocessorProtocol {
+public abstract class BaseCommandTarget implements Coprocessor,
+    CoprocessorProtocol {
   private CoprocessorEnvironment env;
-  
+
   /**
    * @param e Coprocessor environment.
    */
@@ -51,47 +51,32 @@ implements Coprocessor, CoprocessorProtocol {
   }
 
   @Override
-  public void postClose(CoprocessorEnvironment e, boolean abortRequested)
-      throws CoprocessorException {
-  }
+  public void preOpen(CoprocessorEnvironment e) { }
 
   @Override
-  public void postCompact(CoprocessorEnvironment e, boolean willSplit)
-      throws CoprocessorException {
-  }
+  public void postOpen(CoprocessorEnvironment e) { }
 
   @Override
-  public void postFlush(CoprocessorEnvironment e) throws CoprocessorException {
-  }
+  public void preClose(CoprocessorEnvironment e, boolean abortRequested) { }
 
   @Override
-  public void postOpen(CoprocessorEnvironment e) throws CoprocessorException {
-  }
+  public void postClose(CoprocessorEnvironment e, boolean abortRequested) { }
 
   @Override
-  public void postSplit(CoprocessorEnvironment e, HRegion l, HRegion r)
-      throws CoprocessorException {
-  }
+  public void preFlush(CoprocessorEnvironment e) { }
 
   @Override
-  public void preClose(CoprocessorEnvironment e, boolean abortRequested)
-      throws CoprocessorException {
-  }
+  public void postFlush(CoprocessorEnvironment e) { }
 
   @Override
-  public void preCompact(CoprocessorEnvironment e, boolean willSplit)
-      throws CoprocessorException {
-  }
+  public void preCompact(CoprocessorEnvironment e, boolean willSplit) { }
 
   @Override
-  public void preFlush(CoprocessorEnvironment e) throws CoprocessorException {
-  }
+  public void postCompact(CoprocessorEnvironment e, boolean willSplit) { }
 
   @Override
-  public void preOpen(CoprocessorEnvironment e) throws CoprocessorException {
-  }
+  public void preSplit(CoprocessorEnvironment e) { }
 
   @Override
-  public void preSplit(CoprocessorEnvironment e) throws CoprocessorException {
-  }
+  public void postSplit(CoprocessorEnvironment e, HRegion l, HRegion r) { }
 }

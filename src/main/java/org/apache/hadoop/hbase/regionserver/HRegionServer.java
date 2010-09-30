@@ -24,8 +24,6 @@ import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -121,10 +119,7 @@ import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.net.DNS;
 import org.apache.hadoop.security.SecurityUtil;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
-
-import com.google.common.base.Function;
 
 /**
  * HRegionServer makes a set of HRegions available to clients. It checks in with

@@ -545,11 +545,11 @@ public class CoprocessorHost {
       }
     }
   }
+
   /**
    * Invoked before a region open
-   * @exception CoprocessorException Exception
    */
-  public void preOpen() throws CoprocessorException {
+  public void preOpen() {
     loadTableCoprocessors();
     try {
       coprocessorLock.readLock().lock();
@@ -563,9 +563,8 @@ public class CoprocessorHost {
   
   /**
    * Invoked after a region open
-   * @exception CoprocessorException Exception
    */
-  public void postOpen() throws CoprocessorException {
+  public void postOpen() {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -579,10 +578,8 @@ public class CoprocessorHost {
   /**
    * Invoked before a region is closed
    * @param abortRequested true if the server is aborting
-   * @exception CoprocessorException Exception
    */
-  public void preClose(boolean abortRequested)
-  throws CoprocessorException {
+  public void preClose(boolean abortRequested) {
     try {
       coprocessorLock.writeLock().lock();
       for (Environment env: coprocessors) {
@@ -597,10 +594,8 @@ public class CoprocessorHost {
   /**
    * Invoked after a region is closed
    * @param abortRequested true if the server is aborting
-   * @exception CoprocessorException Exception
    */
-  public void postClose(boolean abortRequested)
-  throws CoprocessorException {
+  public void postClose(boolean abortRequested) {
     try {
       coprocessorLock.writeLock().lock();
       for (Environment env: coprocessors) {
@@ -615,21 +610,13 @@ public class CoprocessorHost {
   /**
    * Invoked before a region is compacted.
    * @param willSplit true if the compaction is about to trigger a split
-   * @exception OutOfMemoryError Exception
    */
-  public void preCompact(boolean willSplit)
-  throws OutOfMemoryError {
+  public void preCompact(boolean willSplit) {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.preCompact(env, willSplit);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.preCompact(env, willSplit);
       }
-    } catch (OutOfMemoryError e) {
-      throw e;
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -638,21 +625,13 @@ public class CoprocessorHost {
   /**
    * Invoked after a region is compacted.
    * @param willSplit true if the compaction is about to trigger a split
-   * @exception OutOfMemoryError Exception
    */
-  public void postCompact(boolean willSplit)
-  throws OutOfMemoryError {
+  public void postCompact(boolean willSplit) {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.postCompact(env, willSplit);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.postCompact(env, willSplit);
       }
-    } catch (OutOfMemoryError e) {
-      throw e;
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -660,20 +639,13 @@ public class CoprocessorHost {
 
   /**
    * Invoked before a memstore flush
-   * @exception OutOfMemoryError Exception
    */
-  public void preFlush() throws OutOfMemoryError {
+  public void preFlush() {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.preFlush(env);
-        }  catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.preFlush(env);
       }
-    } catch (OutOfMemoryError e) {
-      throw e;
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -681,20 +653,13 @@ public class CoprocessorHost {
 
   /**
    * Invoked after a memstore flush
-   * @exception OutOfMemoryError Exception
    */
-  public void postFlush() throws OutOfMemoryError {
+  public void postFlush() {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.postFlush(env);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.postFlush(env);
       }      
-    } catch (OutOfMemoryError e) {
-      throw e;
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -702,44 +667,29 @@ public class CoprocessorHost {
   
   /**
    * Invoked just before a split
-   * @exception OutOfMemoryError Exception
    */
-  public void preSplit() throws OutOfMemoryError {
+  public void preSplit() {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.preSplit(env);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.preSplit(env);
       }
-    } catch (OutOfMemoryError e) {
-      throw e;
     } finally {
       coprocessorLock.readLock().unlock();
     }
   }
-  
+
   /**
    * Invoked just after a split
    * @param l the new left-hand daughter region
    * @param r the new right-hand daughter region
-   * @exception OutOfMemoryError Exception
    */
-  public void postSplit(HRegion l, HRegion r) 
-  throws OutOfMemoryError {
+  public void postSplit(HRegion l, HRegion r) {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
-        try {
-          env.impl.postSplit(env, l, r);
-        } catch (CoprocessorException ignored) {
-          // do nothing.
-        }
+        env.impl.postSplit(env, l, r);
       }
-    } catch (OutOfMemoryError e) {
-      throw e;
     } finally {
       coprocessorLock.readLock().unlock();
     }
