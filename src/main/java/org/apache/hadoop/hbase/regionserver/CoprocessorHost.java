@@ -788,19 +788,16 @@ public class CoprocessorHost {
   /**
    * @param get the Get request
    * @param exists the result returned by the region server
-   * @return the result to return to the client
    * @exception CoprocessorException Exception
    */
-  public boolean preExists(final Get get, boolean exists)
-  throws CoprocessorException {
+  public void preExists(final Get get) throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
         if (env.impl instanceof RegionObserver) {
-          exists &= ((RegionObserver)env.impl).preExists(env, get, exists);
+          ((RegionObserver)env.impl).preExists(env, get);
         }
       }
-      return exists;
     } finally {
       coprocessorLock.readLock().unlock();
     }
@@ -813,7 +810,7 @@ public class CoprocessorHost {
    * @exception CoprocessorException Exception
    */
   public boolean postExists(final Get get, boolean exists)
-  throws CoprocessorException {
+      throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -867,44 +864,6 @@ public class CoprocessorHost {
     }
   }
   
-  /**
-   * @param kv KeyValue to store
-   * @return the possibly transformed KeyValue to actually use
-   * @exception CoprocessorException Exception
-   */
-  public KeyValue prePut(KeyValue kv) throws CoprocessorException {
-    try {
-      coprocessorLock.readLock().lock();
-      for (Environment env: coprocessors) {
-        if (env.impl instanceof RegionObserver) {
-          kv = ((RegionObserver)env.impl).prePut(env, kv);
-        }
-      }
-      return kv;
-    } finally {
-      coprocessorLock.readLock().unlock();
-    }
-  }
-  
-  /**
-   * @param kv KeyValue to store
-   * @return the possibly transformed KeyValue to actually use
-   * @exception CoprocessorException Exception
-   */
-  public KeyValue postPut(KeyValue kv) throws CoprocessorException {
-    try {
-      coprocessorLock.readLock().lock();
-      for (Environment env: coprocessors) {
-        if (env.impl instanceof RegionObserver) {
-          kv = ((RegionObserver)env.impl).postPut(env, kv);
-        }
-      }
-      return kv;
-    } finally {
-      coprocessorLock.readLock().unlock();
-    }
-  }
-
   /**
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
@@ -1076,8 +1035,7 @@ public class CoprocessorHost {
    */
   public long postIncrementColumnValue(final byte [] row, final byte [] family,
       final byte [] qualifier, final long amount, final boolean writeToWAL,
-      final long result)
-      throws CoprocessorException {
+      final long result) throws CoprocessorException {
     return result;
   }
 
@@ -1085,8 +1043,7 @@ public class CoprocessorHost {
    * @param scan the Scan specification
    * @exception CoprocessorException Exception
    */
-  public void preScannerOpen(final Scan scan)
-  throws CoprocessorException {
+  public void preScannerOpen(final Scan scan) throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1105,7 +1062,7 @@ public class CoprocessorHost {
    * @exception CoprocessorException Exception
    */
   public void postScannerOpen(final Scan scan, long scannerId)
-  throws CoprocessorException {
+      throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1125,8 +1082,7 @@ public class CoprocessorHost {
    * @exception CoprocessorException Exception
    */
   public List<KeyValue> preScannerNext(final long scannerId,
-      List<KeyValue> results)
-      throws CoprocessorException {
+      List<KeyValue> results) throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1148,8 +1104,7 @@ public class CoprocessorHost {
    * @exception CoprocessorException Exception
    */
   public List<KeyValue> postScannerNext(final long scannerId,
-      List<KeyValue> results)
-      throws CoprocessorException {
+      List<KeyValue> results) throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1169,7 +1124,7 @@ public class CoprocessorHost {
    * @exception CoprocessorException Exception
    */
   public void preScannerClose(final long scannerId)
-  throws CoprocessorException {
+      throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1181,12 +1136,13 @@ public class CoprocessorHost {
       coprocessorLock.readLock().unlock();
     }
   }
+
   /**
    * @param scannerId the scanner id
    * @exception CoprocessorException Exception
    */
   public void postScannerClose(final long scannerId)
-  throws CoprocessorException {
+      throws CoprocessorException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {

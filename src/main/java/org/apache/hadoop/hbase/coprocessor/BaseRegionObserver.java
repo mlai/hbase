@@ -94,10 +94,8 @@ public abstract class BaseRegionObserver implements Coprocessor,
   }
 
   @Override
-  public boolean preExists(CoprocessorEnvironment e, Get get, boolean exists)
-      throws CoprocessorException {
-    return exists;
-  }
+  public void preExists(CoprocessorEnvironment e, Get get)
+      throws CoprocessorException { }
 
   @Override
   public boolean postExists(CoprocessorEnvironment e, Get get, boolean exists)
@@ -106,21 +104,9 @@ public abstract class BaseRegionObserver implements Coprocessor,
   }
 
   @Override
-  public KeyValue prePut(CoprocessorEnvironment e, KeyValue kv)
-      throws CoprocessorException {
-    return kv;
-  }
-
-  @Override
   public Map<byte[], List<KeyValue>> prePut(CoprocessorEnvironment e,
       Map<byte[], List<KeyValue>> familyMap) throws CoprocessorException {
     return familyMap;
-  }
-
-  @Override
-  public KeyValue postPut(CoprocessorEnvironment e, KeyValue kv)
-      throws CoprocessorException {
-    return kv;
   }
 
   @Override

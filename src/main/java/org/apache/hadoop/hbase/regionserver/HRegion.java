@@ -1052,14 +1052,14 @@ public class HRegion implements HeapSize { // , Writable{
   public Result getClosestRowBefore(final byte [] row, final byte [] family)
   throws IOException {
     Result result = null;
-    if (coprocessorHost != null) {
-      result = coprocessorHost.preGetClosestRowBefore(row, family, result);
-    }
     // look across all the HStores for this region and determine what the
     // closest key is across all column families, since the data may be sparse
     KeyValue key = null;
     checkRow(row);
     startRegionOperation();
+    if (coprocessorHost != null) {
+      result = coprocessorHost.preGetClosestRowBefore(row, family, result);
+    }
     try {
       Store store = getStore(family);
       KeyValue kv = new KeyValue(row, HConstants.LATEST_TIMESTAMP);
@@ -1186,13 +1186,12 @@ public class HRegion implements HeapSize { // , Writable{
     long now = EnvironmentEdgeManager.currentTimeMillis();
     byte [] byteNow = Bytes.toBytes(now);
     boolean flush = false;
-    
-    if (coprocessorHost != null) {
-      familyMap = coprocessorHost.preDelete(familyMap);
-    }
 
     updatesLock.readLock().lock();
     try {
+      if (coprocessorHost != null) {
+        familyMap = coprocessorHost.preDelete(familyMap);
+      }
       
       for (Map.Entry<byte[], List<KeyValue>> e : familyMap.entrySet()) {
 
@@ -1257,12 +1256,12 @@ public class HRegion implements HeapSize { // , Writable{
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
+      if (coprocessorHost != null) {
+        familyMap = coprocessorHost.postDelete(familyMap);
+      }
     } finally {
       this.updatesLock.readLock().unlock();
     }    
-    if (coprocessorHost != null) {
-      familyMap = coprocessorHost.postDelete(familyMap);
-    }
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
       requestFlush();
@@ -1658,9 +1657,6 @@ public class HRegion implements HeapSize { // , Writable{
    */
   private void put(Map<byte [], List<KeyValue>> familyMap,
     boolean writeToWAL) throws IOException {
-    if (coprocessorHost != null) {
-      familyMap = coprocessorHost.prePut(familyMap);
-    }
 
     long now = EnvironmentEdgeManager.currentTimeMillis();
     byte[] byteNow = Bytes.toBytes(now);
@@ -1668,6 +1664,9 @@ public class HRegion implements HeapSize { // , Writable{
 
     this.updatesLock.readLock().lock();
     try {
+      if (coprocessorHost != null) {
+        familyMap = coprocessorHost.prePut(familyMap);
+      }
       checkFamilies(familyMap.keySet());
       updateKVTimestamps(familyMap.values(), byteNow);
       // write/sync to WAL should happen before we touch memstore.
@@ -1685,11 +1684,11 @@ public class HRegion implements HeapSize { // , Writable{
       long addedSize = applyFamilyMapToMemstore(familyMap);
       flush = isFlushSize(memstoreSize.addAndGet(addedSize));
 
+      if (coprocessorHost != null) {
+        familyMap = coprocessorHost.postPut(familyMap);
+      }
     } finally {
       this.updatesLock.readLock().unlock();
-    }
-    if (coprocessorHost != null) {
-      familyMap = coprocessorHost.postPut(familyMap);
     }
     if (flush) {
       // Request a cache flush.  Do it outside update lock.
@@ -2934,6 +2933,7 @@ public class HRegion implements HeapSize { // , Writable{
     if ((coprocessorHost != null) && withCoprocessor) {
       results = coprocessorHost.preGet(get, results);
     }
+
     InternalScanner scanner = null;
     try {
       scanner = getScanner(scan);
@@ -2953,6 +2953,7 @@ public class HRegion implements HeapSize { // , Writable{
     if ((coprocessorHost != null) && withCoprocessor) {
       results = coprocessorHost.postGet(get, results);
     }
+
     return results;
   }
 
