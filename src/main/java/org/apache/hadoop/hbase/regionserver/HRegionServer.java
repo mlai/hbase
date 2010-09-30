@@ -59,7 +59,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.Chore;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.HConstants;
-import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 import org.apache.hadoop.hbase.HMsg;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerAddress;
@@ -74,6 +73,7 @@ import org.apache.hadoop.hbase.Stoppable;
 import org.apache.hadoop.hbase.UnknownRowLockException;
 import org.apache.hadoop.hbase.UnknownScannerException;
 import org.apache.hadoop.hbase.YouAreDeadException;
+import org.apache.hadoop.hbase.HConstants.OperationStatusCode;
 import org.apache.hadoop.hbase.catalog.CatalogTracker;
 import org.apache.hadoop.hbase.catalog.MetaEditor;
 import org.apache.hadoop.hbase.catalog.RootLocationEditor;
@@ -123,6 +123,8 @@ import org.apache.hadoop.net.DNS;
 import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.zookeeper.KeeperException;
+
+import com.google.common.base.Function;
 
 /**
  * HRegionServer makes a set of HRegions available to clients. It checks in with
@@ -397,7 +399,6 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     this.abortRequested = false;
     this.stopped = false;
 
-
     //HRegionInterface,
     //HBaseRPCErrorHandler, Runnable, Watcher, Stoppable, OnlineRegions
 
@@ -435,18 +436,31 @@ public class HRegionServer implements HRegionInterface, HBaseRPCErrorHandler,
     }
   }
 
+  /**
+   * Bring up connection to zk ensemble and then wait until a master for this
+   * cluster and then after that, wait until cluster 'up' flag has been set.
+   * This is the order in which master does things.
+   * Finally put up a catalog tracker.
+   * @throws IOException
+   * @throws InterruptedException
+   */
   private void initializeZooKeeper() throws IOException, InterruptedException {
-    // open connection to zookeeper and set primary watcher
+    // Open connection to zookeeper and set primary watcher
     zooKeeper = new ZooKeeperWatcher(conf, REGIONSERVER +
       serverInfo.getServerAddress().getPort(), this);
 
+    // Create the master address manager, register with zk, and start it.  Then
+    // block until a master is available.  No point in starting up if no master
+    // running.
+    this.masterAddressManager = new MasterAddressTracker(zooKeeper, this);
+    this.masterAddressManager.start();
+    this.masterAddressManager.blockUntilAvailable();
+
+    // Wait on cluster being up.  Master will set this flag up in zookeeper
+    // when ready.
     this.clusterStatusTracker = new ClusterStatusTracker(this.zooKeeper, this);
     this.clusterStatusTracker.start();
     this.clusterStatusTracker.blockUntilAvailable();
-
-    // create the master address manager, register with zk, and start it
-    masterAddressManager = new MasterAddressTracker(zooKeeper, this);
-    masterAddressManager.start();
 
     // Create the catalog tracker and start it; 
     this.catalogTracker = new CatalogTracker(this.zooKeeper, this.connection,
