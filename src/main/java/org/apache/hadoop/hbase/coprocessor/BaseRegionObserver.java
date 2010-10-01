@@ -26,6 +26,7 @@ import org.apache.hadoop.hbase.client.Put;
 import org.apache.hadoop.hbase.client.Result;
 import org.apache.hadoop.hbase.client.Scan;
 import org.apache.hadoop.hbase.regionserver.HRegion;
+import java.io.IOException;
 
 /**
  * An abstract class that implements Coprocessor and RegionObserver. 
@@ -69,61 +70,61 @@ public abstract class BaseRegionObserver implements Coprocessor,
 
   @Override
   public Result preGetClosestRowBefore(CoprocessorEnvironment e, byte[] row,
-      byte[] family, Result result) throws CoprocessorException {
+      byte[] family, Result result) throws IOException {
     return result;
   }
 
   @Override
   public Result postGetClosestRowBefore(CoprocessorEnvironment e, 
       byte[] row, byte[] family, Result result) 
-      throws CoprocessorException {
+      throws IOException {
     return result;
   }
 
   @Override
   public List<KeyValue> preGet(CoprocessorEnvironment e, Get get, 
       List<KeyValue> results)
-      throws CoprocessorException {
+      throws IOException {
     return results;
   }
 
   @Override
   public List<KeyValue> postGet(CoprocessorEnvironment e, Get get,
-      List<KeyValue> results) throws CoprocessorException {
+      List<KeyValue> results) throws IOException {
     return results;
   }
 
   @Override
   public void preExists(CoprocessorEnvironment e, Get get)
-      throws CoprocessorException { }
+      throws IOException { }
 
   @Override
   public boolean postExists(CoprocessorEnvironment e, Get get, boolean exists)
-      throws CoprocessorException {
+      throws IOException {
     return exists;
   }
 
   @Override
   public Map<byte[], List<KeyValue>> prePut(CoprocessorEnvironment e,
-      Map<byte[], List<KeyValue>> familyMap) throws CoprocessorException {
+      Map<byte[], List<KeyValue>> familyMap) throws IOException {
     return familyMap;
   }
 
   @Override
   public Map<byte[], List<KeyValue>> postPut(CoprocessorEnvironment e,
-      Map<byte[], List<KeyValue>> familyMap) throws CoprocessorException {
+      Map<byte[], List<KeyValue>> familyMap) throws IOException {
     return familyMap;
   }
 
   @Override
   public Map<byte[], List<KeyValue>> preDelete(CoprocessorEnvironment e,
-      Map<byte[], List<KeyValue>> familyMap) throws CoprocessorException {
+      Map<byte[], List<KeyValue>> familyMap) throws IOException {
     return familyMap;
   }
 
   @Override
   public Map<byte[], List<KeyValue>> postDelete(CoprocessorEnvironment e,
-      Map<byte[], List<KeyValue>> familyMap) throws CoprocessorException {
+      Map<byte[], List<KeyValue>> familyMap) throws IOException {
     return familyMap;
   }
 
@@ -131,14 +132,13 @@ public abstract class BaseRegionObserver implements Coprocessor,
   public void preCheckAndPut(final CoprocessorEnvironment e, 
       final byte [] row, final byte [] family, final byte [] qualifier,
       final byte [] value, final Put put)
-    throws CoprocessorException { }
+    throws IOException { }
 
   @Override
   public boolean postCheckAndPut(final CoprocessorEnvironment e, 
       final byte [] row, final byte [] family, final byte [] qualifier,
       final byte [] value, final Put put, final boolean result)
-    throws CoprocessorException
-  {
+    throws IOException {
     return result;
   }
 
@@ -146,14 +146,13 @@ public abstract class BaseRegionObserver implements Coprocessor,
   public void preCheckAndDelete(final CoprocessorEnvironment e, 
       final byte [] row, final byte [] family, final byte [] qualifier,
       final byte [] value, final Delete delete)
-    throws CoprocessorException { }
+    throws IOException { }
 
   @Override
   public boolean postCheckAndDelete(final CoprocessorEnvironment e, 
       final byte [] row, final byte [] family, final byte [] qualifier,
       final byte [] value, final Delete delete, final boolean result)
-    throws CoprocessorException
-  {
+    throws IOException {
     return result;
   }
 
@@ -161,7 +160,7 @@ public abstract class BaseRegionObserver implements Coprocessor,
   public long preIncrementColumnValue(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
       final long amount, final boolean writeToWAL)
-      throws CoprocessorException {
+      throws IOException {
     return amount;
   }
 
@@ -169,37 +168,36 @@ public abstract class BaseRegionObserver implements Coprocessor,
   public long postIncrementColumnValue(final CoprocessorEnvironment e,
       final byte [] row, final byte [] family, final byte [] qualifier,
       final long amount, final boolean writeToWAL, long result)
-    throws CoprocessorException
-  {
+    throws IOException {
     return result;
   }
 
   @Override
   public void preScannerOpen(CoprocessorEnvironment e, Scan scan)
-    throws CoprocessorException { }
+    throws IOException { }
 
   @Override
   public void postScannerOpen(CoprocessorEnvironment e, Scan scan,
-    long scannerId) throws CoprocessorException { }
+    long scannerId) throws IOException { }
 
   @Override
   public List<KeyValue> preScannerNext(CoprocessorEnvironment e,
-      long scannerId, List<KeyValue> results) throws CoprocessorException {
+      long scannerId, List<KeyValue> results) throws IOException {
     return results;
   }
 
   @Override
   public List<KeyValue> postScannerNext(CoprocessorEnvironment e,
       long scannerId, List<KeyValue> results) 
-      throws CoprocessorException {
+      throws IOException {
     return results;
   }
 
   @Override
   public void preScannerClose(CoprocessorEnvironment e, long scannerId)
-    throws CoprocessorException { }
+    throws IOException { }
 
   @Override
   public void postScannerClose(CoprocessorEnvironment e, long scannerId)
-    throws CoprocessorException { }
+    throws IOException { }
 }

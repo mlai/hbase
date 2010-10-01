@@ -28,7 +28,6 @@ import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseCommandTarget;
 import org.apache.hadoop.hbase.coprocessor.Coprocessor;
-import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.coprocessor.RegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
@@ -702,10 +701,10 @@ public class CoprocessorHost {
    * @param family the family
    * @param result the result set from the region
    * @return the result set to return to the client
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public Result preGetClosestRowBefore(final byte[] row, final byte[] family,
-      Result result) throws CoprocessorException {
+      Result result) throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -725,10 +724,10 @@ public class CoprocessorHost {
    * @param family the family
    * @param result the result set from the region
    * @return the result set to return to the client
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public Result postGetClosestRowBefore(final byte[] row, final byte[] family,
-      Result result) throws CoprocessorException {
+      Result result) throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -747,10 +746,10 @@ public class CoprocessorHost {
    * @param get the Get request
    * @param results the result list
    * @return the possibly transformed result set to use
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public List<KeyValue> preGet(final Get get, List<KeyValue> results)
-  throws CoprocessorException {
+  throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -768,10 +767,10 @@ public class CoprocessorHost {
    * @param get the Get request
    * @param results the result set
    * @return the possibly transformed result set to use
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public List<KeyValue> postGet(final Get get, List<KeyValue> results)
-  throws CoprocessorException {
+  throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -788,9 +787,9 @@ public class CoprocessorHost {
   /**
    * @param get the Get request
    * @param exists the result returned by the region server
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
-  public void preExists(final Get get) throws CoprocessorException {
+  public void preExists(final Get get) throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -807,10 +806,10 @@ public class CoprocessorHost {
    * @param get the Get request
    * @param exists the result returned by the region server
    * @return the result to return to the client
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public boolean postExists(final Get get, boolean exists)
-      throws CoprocessorException {
+      throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -827,10 +826,10 @@ public class CoprocessorHost {
   /**
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public Map<byte[], List<KeyValue>> prePut(Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException {
+  throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -847,10 +846,10 @@ public class CoprocessorHost {
   /**
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public Map<byte[], List<KeyValue>> postPut(Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException {
+  throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -867,10 +866,10 @@ public class CoprocessorHost {
   /**
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public Map<byte[], List<KeyValue>> preDelete(Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException {
+  throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -887,10 +886,10 @@ public class CoprocessorHost {
   /**
    * @param familyMap map of family to edits for the given family.
    * @return the possibly transformed map to actually use
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public Map<byte[], List<KeyValue>> postDelete(Map<byte[], List<KeyValue>> familyMap)
-  throws CoprocessorException {
+  throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -914,7 +913,7 @@ public class CoprocessorHost {
    */
   public void preCheckAndPut(final byte [] row, final byte [] family, 
       final byte [] qualifier, final byte [] value, final Put put)
-    throws CoprocessorException
+    throws IOException
   {
     try {
       coprocessorLock.readLock().lock();
@@ -940,7 +939,7 @@ public class CoprocessorHost {
   public boolean postCheckAndPut(final byte [] row, final byte [] family, 
       final byte [] qualifier, final byte [] value, final Put put,
       boolean result)
-    throws CoprocessorException
+    throws IOException
   {
     try {
       coprocessorLock.readLock().lock();
@@ -966,7 +965,7 @@ public class CoprocessorHost {
    */
   public void preCheckAndDelete(final byte [] row, final byte [] family, 
       final byte [] qualifier, final byte [] value, final Delete delete)
-    throws CoprocessorException
+    throws IOException
   {
     try {
       coprocessorLock.readLock().lock();
@@ -992,7 +991,7 @@ public class CoprocessorHost {
   public boolean postCheckAndDelete(final byte [] row, final byte [] family,
       final byte [] qualifier, final byte [] value, final Delete delete,
       boolean result)
-    throws CoprocessorException
+    throws IOException
   {
     try {
       coprocessorLock.readLock().lock();
@@ -1015,11 +1014,11 @@ public class CoprocessorHost {
    * @param amount long amount to increment
    * @param writeToWAL whether to write the increment to the WAL
    * @return new amount to increment
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws IOException if an error occurred on the coprocessor
    */
   public long preIncrementColumnValue(final byte [] row, final byte [] family,
       final byte [] qualifier, final long amount, final boolean writeToWAL)
-      throws CoprocessorException {
+      throws IOException {
     return amount;
   }
 
@@ -1031,19 +1030,19 @@ public class CoprocessorHost {
    * @param writeToWAL whether to write the increment to the WAL
    * @param result the result returned by incrementColumnValue
    * @return the result to return to the client
-   * @throws CoprocessorException if an error occurred on the coprocessor
+   * @throws IOException if an error occurred on the coprocessor
    */
   public long postIncrementColumnValue(final byte [] row, final byte [] family,
       final byte [] qualifier, final long amount, final boolean writeToWAL,
-      final long result) throws CoprocessorException {
+      final long result) throws IOException {
     return result;
   }
 
   /**
    * @param scan the Scan specification
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
-  public void preScannerOpen(final Scan scan) throws CoprocessorException {
+  public void preScannerOpen(final Scan scan) throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1059,10 +1058,10 @@ public class CoprocessorHost {
   /**
    * @param scan the Scan specification
    * @param scannerId the scanner id allocated by the region server
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public void postScannerOpen(final Scan scan, long scannerId)
-      throws CoprocessorException {
+      throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1079,10 +1078,10 @@ public class CoprocessorHost {
    * @param scannerId the scanner id
    * @param results the result set returned by the region server
    * @return the possibly transformed result set to actually return
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public List<KeyValue> preScannerNext(final long scannerId,
-      List<KeyValue> results) throws CoprocessorException {
+      List<KeyValue> results) throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1101,10 +1100,10 @@ public class CoprocessorHost {
    * @param scannerId the scanner id
    * @param results the result set returned by the region server
    * @return the possibly transformed result set to actually return
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public List<KeyValue> postScannerNext(final long scannerId,
-      List<KeyValue> results) throws CoprocessorException {
+      List<KeyValue> results) throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1121,10 +1120,10 @@ public class CoprocessorHost {
 
   /**
    * @param scannerId the scanner id
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public void preScannerClose(final long scannerId)
-      throws CoprocessorException {
+      throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
@@ -1139,10 +1138,10 @@ public class CoprocessorHost {
 
   /**
    * @param scannerId the scanner id
-   * @exception CoprocessorException Exception
+   * @exception IOException Exception
    */
   public void postScannerClose(final long scannerId)
-      throws CoprocessorException {
+      throws IOException {
     try {
       coprocessorLock.readLock().lock();
       for (Environment env: coprocessors) {
