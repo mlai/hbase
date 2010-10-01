@@ -1386,7 +1386,7 @@ public class HTable implements HTableInterface {
       throws IOException, Throwable {
 
     // get regions covered by the row range
-    List<byte[]> keys = getRowKeysInRange(range);
+    List<byte[]> keys = getStartKeysInRange(range);
     List<Get> rows = Lists.transform(keys,
         new Function<byte[],Get>() {
           public Get apply(byte[] row) {
@@ -1396,7 +1396,7 @@ public class HTable implements HTableInterface {
     connection.processExecs(protocol, rows, tableName, pool, callable, callback);
   }
 
-  private List<byte[]> getRowKeysInRange(RowRange range) throws IOException {
+  private List<byte[]> getStartKeysInRange(RowRange range) throws IOException {
     Pair<byte[][],byte[][]> startEndKeys = getStartEndKeys();
     byte[][] startKeys = startEndKeys.getFirst();
     byte[][] endKeys = startEndKeys.getSecond();

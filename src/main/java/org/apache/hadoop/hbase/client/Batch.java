@@ -65,7 +65,9 @@ public abstract class Batch {
   throws NoSuchMethodException {
     Class[] types = new Class[args.length];
     for (int i=0; i<args.length; i++) {
-      // TODO: this only allows non-null args
+      if (args[i] == null) {
+        throw new NullPointerException("Method argument cannot be null");
+      }
       types[i] = args[i].getClass();
     }
 
