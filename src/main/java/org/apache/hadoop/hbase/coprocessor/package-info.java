@@ -20,6 +20,7 @@
 
 /**
 
+
 <h2>Table of Contents</h2>
 <ul>
 <li><a href="#overview">Overview</a></li>
@@ -105,8 +106,8 @@ an indication to this effect will be passed as an argument.
 <p>
 
 <h2><a name="regionobserver">RegionObserver</a></h2>
-If the coprocessor implements the <code>RegionObserver</code> interface it can observe
-and mediate client actions on the region:
+If the coprocessor implements the <code>RegionObserver</code> interface it can 
+observe and mediate client actions on the region:
 <p>
 <ul>
   <li>preGet, postGet: Called before and after a client makes a Get 
@@ -123,6 +124,10 @@ and mediate client actions on the region:
   asks for the next row on a scanner.</li><p>
   <li>preScannerClose, postScannerClose: Called before and after the client 
   closes a scanner.</li><p>
+  <li>preCheckAndPut, postCheckAndPut: Called before and after the client 
+  calls checkAndPut().</li><p>
+  <li>precheckAndDelete, postcheckAndDelete: Called before and after the client 
+  calls checkAndDelete().</li><p>
 </ul>
 You can also extend abstract class <code>BaseRegionObserver</code> which
 implements both <code>Coprocessor</code> and <code>RegionObserver</code>. 
@@ -258,7 +263,7 @@ Map&lt;byte[], Integer&gt; results;
 // scan: for all regions
 scan = new Scan();
 results = table.exec(ColumnAggregationProtocol.class, scan,
-    new HTable.BatchCall&lt;ColumnAggregationProtocol,Integer&gt;() {
+    new BatchCall&lt;ColumnAggregationProtocol,Integer&gt;() {
       public Integer call(ColumnAggregationProtocol instance) throws IOException{
         return instance.sum(TEST_FAMILY, TEST_QUALIFIER);
       }
@@ -346,5 +351,6 @@ policy implementations, perhaps) ahead of observers.
   admin.createTable(htd);
 </pre></blockquote>
 </div>
+
 */
 package org.apache.hadoop.hbase.coprocessor;
